@@ -1,66 +1,50 @@
-import { useEffect, useState } from 'react'
-import { AuthProvider } from './hooks/useAuth'
+import { useState } from 'react'
+import { AuthProvider, useAuth } from './hooks/useAuth'
 import { BottomNav } from './components/BottomNav'
+import { ConfigureSupabaseGate, LoginGate } from './components/LoginGate'
 import { Dashboard } from './pages/Dashboard'
 import { IncomePage } from './pages/Income'
 import { ExpensesPage } from './pages/Expenses'
 import { ReceiptsPage } from './pages/Receipts'
 import { ReportsPage } from './pages/Reports'
 import { SettingsPage } from './pages/Settings'
-import { seedDatabase } from './db/database'
-import { initializeBusinessData } from './lib/seedBusinessData'
 import type { TabId } from './types'
 
+function LoadingScreen({ message = 'Loading…' }: { message?: string }) {
+  return (
+    <div className="min-h-dvh flex flex-col items-center justify-center bg-slate-950 gap-4">
+      <div className="h-10 w-10 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
+      <p className="text-sm text-slate-400">{message}</p>
+    </div>
+  )
+}
+
 function AppShell() {
+  const { configured, user, loading, dataReady, sessionError } = useAuth()
   const [tab, setTab] = useState<TabId>('dashboard')
-  const [ready, setReady] = useState(false)
-  const [initError, setInitError] = useState<string | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    let finished = false
+  if (loading) {
+    return <LoadingScreen message="Checking sign-in…" />
+  }
 
-    const timeout = window.setTimeout(() => {
-      if (!cancelled && !finished) {
-        setInitError('Startup is taking too long. Try a hard refresh (Ctrl+Shift+R) or clear site data.')
-        setReady(true)
-      }
-    }, 12000)
+  if (!configured) {
+    return <ConfigureSupabaseGate />
+  }
 
-    seedDatabase()
-      .then(() => initializeBusinessData())
-      .catch((err) => {
-        console.error('Database init failed:', err)
-        setInitError(
-          'Could not open local storage. Disable private browsing or allow site data, then refresh.',
-        )
-      })
-      .finally(() => {
-        finished = true
-        if (!cancelled) setReady(true)
-      })
+  if (!user) {
+    return <LoginGate />
+  }
 
-    return () => {
-      cancelled = true
-      window.clearTimeout(timeout)
-    }
-  }, [])
-
-  if (!ready) {
-    return (
-      <div className="min-h-dvh flex flex-col items-center justify-center bg-slate-950 gap-4">
-        <div className="h-10 w-10 animate-spin rounded-full border-2 border-brand-500 border-t-transparent" />
-        <p className="text-sm text-slate-400">Loading Junk Of Urs…</p>
-      </div>
-    )
+  if (!dataReady) {
+    return <LoadingScreen message="Loading your books…" />
   }
 
   return (
     <div className="min-h-dvh bg-slate-950">
-      {initError && (
+      {sessionError && (
         <div className="mx-auto max-w-lg px-4 pt-4">
           <div className="rounded-xl border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
-            {initError}
+            {sessionError}
           </div>
         </div>
       )}

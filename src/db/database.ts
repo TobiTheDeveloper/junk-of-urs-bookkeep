@@ -120,6 +120,15 @@ class BookkeepDB extends Dexie {
 
 export const db = new BookkeepDB()
 
+export async function clearLocalUserData(): Promise<void> {
+  await db.transaction('rw', db.transactions, db.receipts, db.categories, db.settings, async () => {
+    await db.transactions.clear()
+    await db.receipts.clear()
+    await db.categories.clear()
+    await db.settings.clear()
+  })
+}
+
 export async function seedDatabase() {
   const categoryCount = await db.categories.count()
   if (categoryCount === 0) {

@@ -44,6 +44,7 @@ export type Database = {
           receipt_id: string | null
           is_tax_deductible: boolean
           notes: string
+          import_key: string | null
           created_at: string
           updated_at: string
         }

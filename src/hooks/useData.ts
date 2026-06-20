@@ -1,5 +1,6 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, nowIso } from '../db/database'
+import { assertAuthenticated } from '../lib/authGuard'
 import { buildImportKey, findExistingTransaction } from '../lib/dedupe'
 import { scheduleSync } from '../lib/sync'
 import type { Category, Receipt, Settings, Transaction } from '../types'
@@ -23,6 +24,7 @@ export function useSettings(): Settings | undefined {
 export async function addTransaction(
   data: Omit<Transaction, 'id' | 'createdAt' | 'updatedAt'>,
 ): Promise<Transaction> {
+  assertAuthenticated()
   const importKey = buildImportKey(data, data.importKey)
   const existing = await findExistingTransaction({ ...data, importKey })
   if (existing) return existing
@@ -41,11 +43,13 @@ export async function addTransaction(
 }
 
 export async function updateTransaction(id: string, updates: Partial<Transaction>) {
+  assertAuthenticated()
   await db.transactions.update(id, { ...updates, updatedAt: nowIso() })
   scheduleSync()
 }
 
 export async function deleteTransaction(id: string) {
+  assertAuthenticated()
   const tx = await db.transactions.get(id)
   if (tx?.receiptId) {
     await db.receipts.delete(tx.receiptId)
@@ -60,6 +64,7 @@ export async function addReceipt(
   mimeType: string,
   fileName: string,
 ): Promise<Receipt> {
+  assertAuthenticated()
   const now = nowIso()
   const receipt: Receipt = {
     id: crypto.randomUUID(),
@@ -78,6 +83,7 @@ export async function addReceipt(
 }
 
 export async function addCategory(name: string, icon = 'tag', color = '#64748b') {
+  assertAuthenticated()
   const category: Category = {
     id: crypto.randomUUID(),
     name,
@@ -92,6 +98,7 @@ export async function addCategory(name: string, icon = 'tag', color = '#64748b')
 }
 
 export async function deleteCategory(id: string) {
+  assertAuthenticated()
   const cat = await db.categories.get(id)
   if (cat?.isDefault) return false
   await db.categories.delete(id)
@@ -100,6 +107,7 @@ export async function deleteCategory(id: string) {
 }
 
 export async function updateSettings(updates: Partial<Settings>) {
+  assertAuthenticated()
   await db.settings.update('main', { ...updates, updatedAt: nowIso() })
   scheduleSync()
 }
@@ -114,6 +122,7 @@ export async function attachReceiptToExisting(
   mimeType: string,
   fileName: string,
 ) {
+  assertAuthenticated()
   const tx = await db.transactions.get(transactionId)
   if (!tx) return
 

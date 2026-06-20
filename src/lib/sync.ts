@@ -1,5 +1,12 @@
 import { db, nowIso } from '../db/database'
 import type { Category, Receipt, Settings, Transaction } from '../types'
+import { isAuthenticated } from './authGuard'
+import {
+  backfillImportKeys,
+  buildImportKey,
+  findExistingTransaction,
+  removeDuplicateTransactions,
+} from './dedupe'
 import { getSupabase, isSupabaseConfigured } from './supabase'
 
 export type SyncResult = {
@@ -12,8 +19,15 @@ export type SyncResult = {
 let syncTimer: ReturnType<typeof setTimeout> | null = null
 let syncInFlight = false
 
+export function cancelScheduledSync() {
+  if (syncTimer) {
+    clearTimeout(syncTimer)
+    syncTimer = null
+  }
+}
+
 export function scheduleSync(delayMs = 2000) {
-  if (!isSupabaseConfigured) return
+  if (!isSupabaseConfigured || !isAuthenticated()) return
   if (syncTimer) clearTimeout(syncTimer)
   syncTimer = setTimeout(() => {
     syncToCloud().catch(console.error)
@@ -82,6 +96,7 @@ function toRemoteTransaction(tx: Transaction, userId: string) {
     receipt_id: tx.receiptId,
     is_tax_deductible: tx.isTaxDeductible,
     notes: tx.notes,
+    import_key: tx.importKey,
     created_at: tx.createdAt,
     updated_at: tx.updatedAt,
   }
@@ -127,7 +142,8 @@ function fromRemoteCategory(row: Record<string, unknown>): Category {
 }
 
 function fromRemoteTransaction(row: Record<string, unknown>): Transaction {
-  return {
+  const importKey = (row.import_key as string | null) ?? null
+  const base = {
     id: row.id as string,
     type: row.type as Transaction['type'],
     amount: Number(row.amount),
@@ -140,9 +156,12 @@ function fromRemoteTransaction(row: Record<string, unknown>): Transaction {
     receiptId: (row.receipt_id as string) ?? null,
     isTaxDeductible: row.is_tax_deductible as boolean,
     notes: (row.notes as string) ?? '',
-    importKey: null,
     createdAt: row.created_at as string,
     updatedAt: row.updated_at as string,
+  }
+  return {
+    ...base,
+    importKey: importKey ?? buildImportKey(base),
   }
 }
 
@@ -183,10 +202,47 @@ async function mergeCategory(incoming: Category) {
   return false
 }
 
-async function mergeTransaction(incoming: Transaction) {
-  const existing = await db.transactions.get(incoming.id)
-  if (!existing || new Date(incoming.updatedAt) >= new Date(existing.updatedAt)) {
-    await db.transactions.put(incoming)
+async function mergeTransaction(incoming: Transaction): Promise<boolean> {
+  const importKey = incoming.importKey ?? buildImportKey(incoming)
+  const normalized: Transaction = { ...incoming, importKey }
+
+  const existingByFingerprint = await findExistingTransaction(normalized)
+  if (existingByFingerprint && existingByFingerprint.id !== normalized.id) {
+    const duplicateById = await db.transactions.get(normalized.id)
+    if (duplicateById) {
+      if (duplicateById.receiptId) {
+        await db.receipts.delete(duplicateById.receiptId)
+      }
+      await db.transactions.delete(duplicateById.id)
+    }
+
+    if (new Date(normalized.updatedAt) >= new Date(existingByFingerprint.updatedAt)) {
+      await db.transactions.update(existingByFingerprint.id, {
+        type: normalized.type,
+        amount: normalized.amount,
+        date: normalized.date,
+        description: normalized.description,
+        categoryId: normalized.categoryId,
+        incomeSource: normalized.incomeSource,
+        vendor: normalized.vendor,
+        client: normalized.client,
+        receiptId: normalized.receiptId,
+        isTaxDeductible: normalized.isTaxDeductible,
+        notes: normalized.notes,
+        importKey: existingByFingerprint.importKey ?? importKey,
+        updatedAt: normalized.updatedAt,
+      })
+      return true
+    }
+    return false
+  }
+
+  const existing = await db.transactions.get(normalized.id)
+  if (!existing || new Date(normalized.updatedAt) >= new Date(existing.updatedAt)) {
+    await db.transactions.put({
+      ...normalized,
+      importKey: existing?.importKey ?? importKey,
+    })
     return true
   }
   return false
@@ -316,6 +372,9 @@ export async function syncToCloud(): Promise<SyncResult> {
 
     await db.settings.update('main', { lastSyncedAt: nowIso() })
 
+    await backfillImportKeys()
+    await removeDuplicateTransactions()
+
     return { ok: true, message: 'Sync complete', pushed, pulled }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Sync failed'
@@ -368,6 +427,9 @@ export async function pullFromCloud(userId: string): Promise<SyncResult> {
       }
       await db.settings.update('main', { lastSyncedAt: nowIso() })
     })
+
+    await backfillImportKeys()
+    await removeDuplicateTransactions()
 
     return { ok: true, message: 'Cloud data downloaded', pushed: 0, pulled }
   } catch (err) {

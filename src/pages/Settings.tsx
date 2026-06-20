@@ -43,13 +43,11 @@ import {
 } from '../lib/seedBusinessData'
 import { summarizeImportResult } from '../lib/expensifyImport'
 import { getOntarioTaxExplanation, ONTARIO_SOLE_PROP_TAX } from '../lib/taxReminders'
-import { useAuth } from '../hooks/useAuth'
 
 export function SettingsPage() {
   const settings = useSettings()
   const categories = useCategories()
   const transactions = useTransactions()
-  const { user } = useAuth()
   const [newCategory, setNewCategory] = useState('')
   const [saved, setSaved] = useState(false)
   const [tipsOpen, setTipsOpen] = useState(false)
@@ -158,11 +156,7 @@ export function SettingsPage() {
         <div className="grid grid-cols-3 gap-2">
           <SettingsStatPill label="Transactions" value={String(transactions.length)} />
           <SettingsStatPill label="Tax reserve" value={`${combinedRate.toFixed(1)}%`} tone="amber" />
-          <SettingsStatPill
-            label="Storage"
-            value={user ? 'Cloud + local' : 'Local only'}
-            tone="brand"
-          />
+          <SettingsStatPill label="Storage" value="Cloud + local" tone="brand" />
         </div>
       </header>
 
@@ -413,7 +407,7 @@ export function SettingsPage() {
       </SettingsSection>
 
       <p className="text-center text-[11px] text-slate-600 pt-1">
-        Junk Of Urs Bookkeeper · Offline-first PWA
+        Junk Of Urs Bookkeeper · Sign in required
       </p>
     </div>
   )

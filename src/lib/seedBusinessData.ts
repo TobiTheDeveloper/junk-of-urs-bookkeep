@@ -1,4 +1,5 @@
 import { db, getCategoryIdByName, nowIso } from '../db/database'
+import { assertAuthenticated } from './authGuard'
 import {
   findExistingTransaction,
   removeDuplicateTransactions,
@@ -101,6 +102,7 @@ export const JUNE_2026_INCOME: SeedIncome[] = [
 ]
 
 async function upsertExpense(item: SeedExpense): Promise<'imported' | 'updated' | 'duplicate'> {
+  assertAuthenticated()
   const existing = await findExistingTransaction({
     type: 'expense',
     date: item.date,
@@ -151,6 +153,7 @@ async function upsertExpense(item: SeedExpense): Promise<'imported' | 'updated' 
 }
 
 async function upsertIncome(item: SeedIncome): Promise<'imported' | 'updated' | 'duplicate'> {
+  assertAuthenticated()
   const existing = await findExistingTransaction({
     type: 'income',
     date: item.date,
@@ -201,6 +204,7 @@ export async function importExpensifyCsv(
   csvText: string,
   businessStartDate: string,
 ): Promise<ExpensifyImportResult> {
+  assertAuthenticated()
   const parsed = dedupeExpensifyRows(
     filterFromBusinessStart(parseExpensifyCsv(csvText), businessStartDate),
   )
@@ -237,12 +241,14 @@ export async function importExpensifyCsv(
   }
 
   if (result.imported > 0) scheduleSync()
+  await removeDuplicateTransactions()
   return result
 }
 
 export async function seedJune2026BusinessData(): Promise<
   ExpensifyImportResult & { incomeImported: number; duplicatesRemoved: number }
 > {
+  assertAuthenticated()
   const result: ExpensifyImportResult & { incomeImported: number; duplicatesRemoved: number } = {
     imported: 0,
     skipped: 0,
@@ -275,20 +281,14 @@ export async function seedJune2026BusinessData(): Promise<
     else result.duplicates++
   }
 
+  result.duplicatesRemoved += await removeDuplicateTransactions()
+
   if (result.imported > 0 || result.incomeImported > 0) scheduleSync()
 
   result.messages.push(
     `Synced ${result.imported} expenses and ${result.incomeImported} income entries. Skipped ${result.duplicates} duplicates. Removed ${result.duplicatesRemoved} extra copies.`,
   )
   return result
-}
-
-export async function initializeBusinessData(): Promise<void> {
-  await removeDuplicateTransactions()
-  const count = await db.transactions.count()
-  if (count === 0) {
-    await seedJune2026BusinessData()
-  }
 }
 
 export function analyzeExpensifyCsv(csvText: string, businessStartDate: string) {

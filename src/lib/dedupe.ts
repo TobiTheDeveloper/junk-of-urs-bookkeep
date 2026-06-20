@@ -58,12 +58,28 @@ export async function backfillImportKeys(): Promise<void> {
 
 export async function removeDuplicateTransactions(): Promise<number> {
   const all = await db.transactions.toArray()
-  const keepByFingerprint = new Map<string, Transaction>()
   let removed = 0
 
   const sorted = all.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  const keepByImportKey = new Map<string, Transaction>()
+  const keepByFingerprint = new Map<string, Transaction>()
+  const dropIds = new Set<string>()
 
   for (const tx of sorted) {
+    if (tx.importKey) {
+      const existing = keepByImportKey.get(tx.importKey)
+      if (existing) {
+        dropIds.add(tx.id)
+        removed++
+        continue
+      }
+      keepByImportKey.set(tx.importKey, tx)
+    }
+  }
+
+  for (const tx of sorted) {
+    if (dropIds.has(tx.id)) continue
+
     const fp = buildTransactionFingerprint(tx)
     const existing = keepByFingerprint.get(fp)
     if (!existing) {
@@ -80,12 +96,16 @@ export async function removeDuplicateTransactions(): Promise<number> {
     const keep = tx.importKey && !existing.importKey ? tx : existing
     const drop = keep.id === tx.id ? existing : tx
     keepByFingerprint.set(fp, keep)
-
-    if (drop.receiptId) {
-      await db.receipts.delete(drop.receiptId)
-    }
-    await db.transactions.delete(drop.id)
+    dropIds.add(drop.id)
     removed++
+  }
+
+  for (const id of dropIds) {
+    const tx = all.find((row) => row.id === id)
+    if (tx?.receiptId) {
+      await db.receipts.delete(tx.receiptId)
+    }
+    await db.transactions.delete(id)
   }
 
   return removed

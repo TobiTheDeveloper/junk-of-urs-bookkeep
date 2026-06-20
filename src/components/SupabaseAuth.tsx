@@ -91,7 +91,6 @@ export function SupabaseAuthPanel() {
       const err =
         mode === 'signin' ? await signIn(email, password) : await signUp(email, password)
       if (err) setError(err)
-      else if (mode === 'signin') await syncNow()
     } finally {
       setBusy(false)
     }
@@ -101,7 +100,7 @@ export function SupabaseAuthPanel() {
     <SettingsSection
       icon={Cloud}
       title="Cloud sync"
-      description="Back up and sync across devices · works offline without sign-in"
+      description="Back up and sync across devices · sign in required"
     >
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
