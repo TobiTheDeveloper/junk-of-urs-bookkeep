@@ -115,7 +115,10 @@ async function upsertExpense(item: SeedExpense): Promise<'imported' | 'updated' 
   })
 
   const categoryId = await getCategoryIdByName(item.categoryName)
-  if (!categoryId) throw new Error(`Missing category: ${item.categoryName}`)
+  if (!categoryId) {
+    console.warn(`Skipping expense — missing category: ${item.categoryName}`)
+    return 'duplicate'
+  }
 
   const now = nowIso()
   if (existing) {

@@ -37,11 +37,18 @@ export function scheduleSync(delayMs = 2000) {
 }
 
 function dataUrlToBlob(dataUrl: string, mimeType: string): Blob {
-  const base64 = dataUrl.split(',')[1]
-  const bytes = atob(base64)
-  const buffer = new Uint8Array(bytes.length)
-  for (let i = 0; i < bytes.length; i++) buffer[i] = bytes.charCodeAt(i)
-  return new Blob([buffer], { type: mimeType })
+  const commaIndex = dataUrl.indexOf(',')
+  if (commaIndex === -1) return new Blob([], { type: mimeType })
+
+  try {
+    const base64 = dataUrl.slice(commaIndex + 1)
+    const bytes = atob(base64)
+    const buffer = new Uint8Array(bytes.length)
+    for (let i = 0; i < bytes.length; i++) buffer[i] = bytes.charCodeAt(i)
+    return new Blob([buffer], { type: mimeType })
+  } catch {
+    return new Blob([], { type: mimeType })
+  }
 }
 
 async function uploadReceiptImage(userId: string, receipt: Receipt): Promise<string | null> {

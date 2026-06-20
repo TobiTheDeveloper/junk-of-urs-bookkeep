@@ -15,8 +15,11 @@ export function ReceiptCapture({ preview, onCapture, onClear }: ReceiptCapturePr
     const reader = new FileReader()
     reader.onload = () => {
       if (typeof reader.result === 'string') {
-        onCapture(reader.result, file.type, file.name)
+        onCapture(reader.result, file.type || 'image/jpeg', file.name)
       }
+    }
+    reader.onerror = () => {
+      console.error('Could not read receipt image')
     }
     reader.readAsDataURL(file)
   }

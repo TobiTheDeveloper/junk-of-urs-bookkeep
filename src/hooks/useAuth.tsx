@@ -106,8 +106,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     const supabase = getSupabase()
     if (!supabase) return
+    setAuthenticatedUserId(null)
     await supabase.auth.signOut()
-    await clearSessionData()
   }
 
   const syncNow = async () => {

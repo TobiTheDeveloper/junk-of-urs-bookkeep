@@ -62,6 +62,16 @@ export function SettingsPage() {
   const [importMessage, setImportMessage] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const year = new Date().getFullYear()
+  const ytdSummary = useMemo(() => {
+    if (!settings) return null
+    return calculateSummary(transactions, categories, settings, year)
+  }, [transactions, categories, settings, year])
+
+  const uniqueCategoryCount = useMemo(() => {
+    return new Set(categories.map((c) => normalizeCategoryName(c.name))).size
+  }, [categories])
+
   useEffect(() => {
     if (settings) {
       setBusinessName(settings.businessName)
@@ -85,8 +95,12 @@ export function SettingsPage() {
   const handleAddCategory = async () => {
     const name = newCategory.trim()
     if (!name) return
-    await addCategory(name)
-    setNewCategory('')
+    try {
+      await addCategory(name)
+      setNewCategory('')
+    } catch (err) {
+      console.error('Failed to add category:', err)
+    }
   }
 
   const handleExportJson = async () => {
@@ -95,8 +109,12 @@ export function SettingsPage() {
       settings: await db.settings.toArray(),
       categories: await db.categories.toArray(),
       transactions: await db.transactions.toArray(),
-      receipts: await db.receipts.toArray().then((r) =>
-        r.map(({ imageData: _, ...rest }) => rest),
+      receipts: await db.receipts.toArray().then((rows) =>
+        rows.map((row) => {
+          const { imageData: _omit, ...rest } = row
+          void _omit
+          return rest
+        }),
       ),
     }
 
@@ -116,17 +134,25 @@ export function SettingsPage() {
 
   const handleExpensifyImport = async (file: File) => {
     if (!settings) return
-    const text = await file.text()
-    const preview = analyzeExpensifyCsv(text, businessStartDate)
-    const result = await importExpensifyCsv(text, businessStartDate)
-    setImportMessage(
-      `${summarizeImportResult(result)} Preview: ${preview.business} business / ${preview.personal} personal.`,
-    )
+    try {
+      const text = await file.text()
+      const preview = analyzeExpensifyCsv(text, businessStartDate)
+      const result = await importExpensifyCsv(text, businessStartDate)
+      setImportMessage(
+        `${summarizeImportResult(result)} Preview: ${preview.business} business / ${preview.personal} personal.`,
+      )
+    } catch (err) {
+      setImportMessage(err instanceof Error ? err.message : 'Import failed.')
+    }
   }
 
   const handleReloadJuneData = async () => {
-    const result = await seedJune2026BusinessData()
-    setImportMessage(result.messages.join(' ') + ` (${result.duplicates} skipped.)`)
+    try {
+      const result = await seedJune2026BusinessData()
+      setImportMessage(result.messages.join(' ') + ` (${result.duplicates} skipped.)`)
+    } catch (err) {
+      setImportMessage(err instanceof Error ? err.message : 'Could not reload June data.')
+    }
   }
 
   if (!settings) {
@@ -137,17 +163,7 @@ export function SettingsPage() {
     )
   }
 
-  const year = new Date().getFullYear()
-  const ytdSummary = useMemo(() => {
-    if (!settings) return null
-    return calculateSummary(transactions, categories, settings, year)
-  }, [transactions, categories, settings, year])
-
-  const uniqueCategoryCount = useMemo(() => {
-    return new Set(categories.map((c) => normalizeCategoryName(c.name))).size
-  }, [categories])
-
-  const currency = settings?.currency ?? 'CAD'
+  const currency = settings.currency ?? 'CAD'
   const effectiveTaxRate = ytdSummary?.effectiveTaxRate ?? 0
   const incomeCount = transactions.filter((t) => t.type === 'income').length
   const expenseCount = transactions.filter((t) => t.type === 'expense').length

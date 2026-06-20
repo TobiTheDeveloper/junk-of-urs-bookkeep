@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { AuthProvider, useAuth } from './hooks/useAuth'
 import { BottomNav } from './components/BottomNav'
 import { ConfigureSupabaseGate, LoginGate } from './components/LoginGate'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { Dashboard } from './pages/Dashboard'
 import { IncomePage } from './pages/Income'
 import { ExpensesPage } from './pages/Expenses'
@@ -65,9 +66,11 @@ function AppShell() {
 
 function App() {
   return (
-    <AuthProvider>
-      <AppShell />
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <AppShell />
+      </AuthProvider>
+    </ErrorBoundary>
   )
 }
 

@@ -93,6 +93,8 @@ export function ExpensesPage() {
 
       resetForm()
       setModalOpen(false)
+    } catch (err) {
+      console.error('Failed to save expense:', err)
     } finally {
       setSaving(false)
     }
@@ -171,7 +173,9 @@ export function ExpensesPage() {
                     </span>
                     <button
                       type="button"
-                      onClick={() => deleteTransaction(tx.id)}
+                      onClick={() => {
+                        deleteTransaction(tx.id).catch(console.error)
+                      }}
                       className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-950/30"
                     >
                       <Trash2 size={16} />

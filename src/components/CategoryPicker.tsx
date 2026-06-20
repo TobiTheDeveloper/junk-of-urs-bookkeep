@@ -1,4 +1,5 @@
 import type { Category } from '../types'
+import { normalizeCategoryName } from '../lib/dedupe'
 
 interface CategoryPickerProps {
   categories: Category[]
@@ -7,9 +8,15 @@ interface CategoryPickerProps {
 }
 
 export function CategoryPicker({ categories, value, onChange }: CategoryPickerProps) {
+  const uniqueCategories = categories.filter(
+    (cat, index, all) =>
+      all.findIndex((c) => normalizeCategoryName(c.name) === normalizeCategoryName(cat.name)) ===
+      index,
+  )
+
   return (
     <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto">
-      {categories.map((cat) => (
+      {uniqueCategories.map((cat) => (
         <button
           key={cat.id}
           type="button"
