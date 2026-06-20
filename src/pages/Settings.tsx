@@ -1,13 +1,31 @@
 import { useEffect, useRef, useState } from 'react'
-import { Plus, Trash2, Download, Info, FileSpreadsheet, Upload, Database } from 'lucide-react'
+import {
+  Plus,
+  Trash2,
+  Info,
+  FileSpreadsheet,
+  Upload,
+  Database,
+  Building2,
+  Tags,
+  FolderInput,
+  FileDown,
+  Receipt,
+  ChevronDown,
+} from 'lucide-react'
 import {
   FieldLabel,
   GhostButton,
   PrimaryButton,
   TextInput,
 } from '../components/FormFields'
+import {
+  SettingsAction,
+  SettingsSection,
+  SettingsStatPill,
+  SettingsToggle,
+} from '../components/SettingsSection'
 import { SupabaseAuthPanel } from '../components/SupabaseAuth'
-import { RecordKeepingTips } from '../components/RecordKeepingTips'
 import {
   addCategory,
   deleteCategory,
@@ -34,6 +52,8 @@ export function SettingsPage() {
   const { user } = useAuth()
   const [newCategory, setNewCategory] = useState('')
   const [saved, setSaved] = useState(false)
+  const [tipsOpen, setTipsOpen] = useState(false)
+  const [categoriesOpen, setCategoriesOpen] = useState(true)
 
   const [businessName, setBusinessName] = useState('')
   const [businessStartDate, setBusinessStartDate] = useState('2026-06-01')
@@ -105,13 +125,13 @@ export function SettingsPage() {
     const preview = analyzeExpensifyCsv(text, businessStartDate)
     const result = await importExpensifyCsv(text, businessStartDate)
     setImportMessage(
-      `${summarizeImportResult(result)} Preview had ${preview.business} business / ${preview.personal} personal from ${preview.totalRows} rows.`,
+      `${summarizeImportResult(result)} Preview: ${preview.business} business / ${preview.personal} personal.`,
     )
   }
 
   const handleReloadJuneData = async () => {
     const result = await seedJune2026BusinessData()
-    setImportMessage(result.messages.join(' ') + ` (${result.duplicates} already existed.)`)
+    setImportMessage(result.messages.join(' ') + ` (${result.duplicates} skipped.)`)
   }
 
   if (!settings) {
@@ -123,136 +143,181 @@ export function SettingsPage() {
   }
 
   const combinedRate = (parseFloat(incomeTaxRate) || 0) + (parseFloat(selfEmploymentRate) || 0)
+  const incomeCount = transactions.filter((t) => t.type === 'income').length
+  const expenseCount = transactions.filter((t) => t.type === 'expense').length
 
   return (
-    <div className="space-y-6">
-      <header>
-        <h1 className="text-2xl font-bold text-white">Settings</h1>
-        <p className="text-sm text-slate-400 mt-0.5">Business info, tax rates, sync, and exports</p>
+    <div className="space-y-5 pb-2">
+      <header className="space-y-3">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wider text-brand-400">Settings</p>
+          <h1 className="text-2xl font-bold text-white mt-1">{businessName || 'Junk Of Urs'}</h1>
+          <p className="text-sm text-slate-400 mt-1">Ontario sole proprietorship · {settings.currency}</p>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          <SettingsStatPill label="Transactions" value={String(transactions.length)} />
+          <SettingsStatPill label="Tax reserve" value={`${combinedRate.toFixed(1)}%`} tone="amber" />
+          <SettingsStatPill
+            label="Storage"
+            value={user ? 'Cloud + local' : 'Local only'}
+            tone="brand"
+          />
+        </div>
       </header>
 
       <SupabaseAuthPanel />
 
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
-        <h2 className="text-sm font-semibold text-slate-300 mb-4">Business Profile</h2>
+      <SettingsSection
+        icon={Building2}
+        title="Business & tax"
+        description="Profile, Ontario rates, and CRA instalment reminders"
+      >
         <form onSubmit={handleSaveSettings} className="space-y-4">
-          <div>
-            <FieldLabel>Business Name</FieldLabel>
-            <TextInput value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
+          <div className="space-y-3">
+            <div>
+              <FieldLabel>Business name</FieldLabel>
+              <TextInput value={businessName} onChange={(e) => setBusinessName(e.target.value)} />
+            </div>
+            <div>
+              <FieldLabel>Business start date</FieldLabel>
+              <TextInput
+                type="date"
+                value={businessStartDate}
+                onChange={(e) => setBusinessStartDate(e.target.value)}
+              />
+              <p className="text-[11px] text-slate-500 mt-1.5">
+                Expensify imports only include expenses on or after this date.
+              </p>
+            </div>
           </div>
 
-          <div>
-            <FieldLabel>Business Start Date</FieldLabel>
-            <TextInput
-              type="date"
-              value={businessStartDate}
-              onChange={(e) => setBusinessStartDate(e.target.value)}
-            />
-            <p className="text-xs text-slate-500 mt-1">
-              Expensify imports only include expenses on or after this date.
+          <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500 mb-3">
+              Ontario tax rates
             </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <FieldLabel>Federal + ON (%)</FieldLabel>
+                <TextInput
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="50"
+                  value={incomeTaxRate}
+                  onChange={(e) => setIncomeTaxRate(e.target.value)}
+                />
+              </div>
+              <div>
+                <FieldLabel>CPP (%)</FieldLabel>
+                <TextInput
+                  type="number"
+                  step="0.1"
+                  min="0"
+                  max="50"
+                  value={selfEmploymentRate}
+                  onChange={(e) => setSelfEmploymentRate(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="mt-3 flex items-center justify-between rounded-lg bg-amber-950/40 border border-amber-900/30 px-3 py-2">
+              <span className="text-xs text-amber-200/80">Combined reserve</span>
+              <span className="text-sm font-bold text-amber-300">{combinedRate.toFixed(2)}%</span>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <FieldLabel>Federal + Ontario Tax (%)</FieldLabel>
-              <TextInput
-                type="number"
-                step="0.1"
-                min="0"
-                max="50"
-                value={incomeTaxRate}
-                onChange={(e) => setIncomeTaxRate(e.target.value)}
-              />
-            </div>
-            <div>
-              <FieldLabel>CPP Contributions (%)</FieldLabel>
-              <TextInput
-                type="number"
-                step="0.1"
-                min="0"
-                max="50"
-                value={selfEmploymentRate}
-                onChange={(e) => setSelfEmploymentRate(e.target.value)}
-              />
-            </div>
-          </div>
+          <SettingsToggle
+            checked={quarterlyRemindersEnabled}
+            onChange={setQuarterlyRemindersEnabled}
+            label="CRA instalment reminders"
+            description="Mar 15 · Jun 15 · Sep 15 · Dec 15"
+          />
 
-          <label className="flex items-center gap-3 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={quarterlyRemindersEnabled}
-              onChange={(e) => setQuarterlyRemindersEnabled(e.target.checked)}
-              className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-brand-500 focus:ring-brand-500"
-            />
-            <span className="text-sm text-slate-300">
-              CRA instalment reminders (Mar 15, Jun 15, Sep 15, Dec 15)
-            </span>
-          </label>
-
-          <div className="rounded-xl bg-amber-950/30 border border-amber-900/40 p-3 flex gap-2">
-            <Info size={16} className="text-amber-400 shrink-0 mt-0.5" />
-            <p className="text-xs text-amber-100/80">
-              Combined tax reserve: <strong>{combinedRate.toFixed(2)}%</strong> (
-              {ONTARIO_SOLE_PROP_TAX.incomeTaxRate}% income + {ONTARIO_SOLE_PROP_TAX.cppRate}% CPP).
+          <details className="group rounded-xl border border-amber-900/30 bg-amber-950/20">
+            <summary className="flex items-center gap-2 cursor-pointer list-none px-3.5 py-2.5 text-xs text-amber-200/90">
+              <Info size={14} className="shrink-0" />
+              <span className="flex-1">Tax rate details</span>
+              <ChevronDown size={14} className="shrink-0 transition-transform group-open:rotate-180" />
+            </summary>
+            <p className="px-3.5 pb-3 text-[11px] text-amber-100/70 leading-relaxed">
               {getOntarioTaxExplanation()} Meals are 50% deductible.
             </p>
-          </div>
+          </details>
 
-          <PrimaryButton type="submit">{saved ? 'Saved!' : 'Save Settings'}</PrimaryButton>
+          <PrimaryButton type="submit">{saved ? 'Saved!' : 'Save changes'}</PrimaryButton>
         </form>
-      </section>
+      </SettingsSection>
 
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
-        <h2 className="text-sm font-semibold text-slate-300 mb-3">Expense Categories</h2>
-        <div className="flex gap-2 mb-4">
+      <SettingsSection
+        icon={Tags}
+        title="Expense categories"
+        description={`${categories.length} categories · ${expenseCount} expenses logged`}
+      >
+        <div className="flex gap-2 mb-3">
           <TextInput
-            placeholder="New category name"
+            placeholder="Add category…"
             value={newCategory}
             onChange={(e) => setNewCategory(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddCategory())}
             className="flex-1"
           />
-          <GhostButton type="button" onClick={handleAddCategory} className="shrink-0">
+          <GhostButton type="button" onClick={handleAddCategory} className="shrink-0 px-3">
             <Plus size={18} />
           </GhostButton>
         </div>
-        <div className="space-y-2">
-          {categories.map((cat) => (
-            <div
-              key={cat.id}
-              className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-800/50 px-3 py-2.5"
-            >
-              <div className="flex items-center gap-2">
-                <span
-                  className="w-2.5 h-2.5 rounded-full"
-                  style={{ backgroundColor: cat.color }}
-                />
-                <span className="text-sm text-slate-200">{cat.name}</span>
-                {cat.isDefault && (
-                  <span className="text-[10px] text-slate-500">default</span>
+
+        <button
+          type="button"
+          onClick={() => setCategoriesOpen((o) => !o)}
+          className="flex items-center justify-between w-full text-xs text-slate-500 mb-2 hover:text-slate-300"
+        >
+          <span>{categoriesOpen ? 'Hide list' : 'Show list'}</span>
+          <ChevronDown
+            size={14}
+            className={`transition-transform ${categoriesOpen ? 'rotate-180' : ''}`}
+          />
+        </button>
+
+        {categoriesOpen && (
+          <div className="max-h-52 overflow-y-auto space-y-1.5 pr-1 -mr-1">
+            {categories.map((cat) => (
+              <div
+                key={cat.id}
+                className="flex items-center justify-between rounded-lg border border-slate-800/80 bg-slate-800/30 px-3 py-2"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: cat.color }}
+                  />
+                  <span className="text-sm text-slate-200 truncate">{cat.name}</span>
+                  {cat.isDefault && (
+                    <span className="text-[9px] uppercase tracking-wide text-slate-600 shrink-0">
+                      default
+                    </span>
+                  )}
+                </div>
+                {!cat.isDefault && (
+                  <button
+                    type="button"
+                    onClick={() => deleteCategory(cat.id)}
+                    className="p-1.5 rounded-md text-slate-500 hover:text-red-400 hover:bg-red-950/30 shrink-0"
+                    aria-label={`Delete ${cat.name}`}
+                  >
+                    <Trash2 size={13} />
+                  </button>
                 )}
               </div>
-              {!cat.isDefault && (
-                <button
-                  type="button"
-                  onClick={() => deleteCategory(cat.id)}
-                  className="p-1 text-slate-500 hover:text-red-400"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        )}
+      </SettingsSection>
 
-      <RecordKeepingTips />
-
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
-        <h2 className="text-sm font-semibold text-slate-300">Import from Expensify</h2>
-        <p className="text-xs text-slate-500">
-          Duplicates are blocked automatically. Personal expenses are filtered out.
-        </p>
+      <SettingsSection
+        icon={FolderInput}
+        title="Import data"
+        description="Bring in Expensify exports or reload your June 2026 books"
+      >
         <input
           ref={fileInputRef}
           type="file"
@@ -264,54 +329,90 @@ export function SettingsPage() {
             e.target.value = ''
           }}
         />
-        <GhostButton
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="w-full flex items-center justify-center gap-2"
-        >
-          <Upload size={16} />
-          Import Expensify CSV
-        </GhostButton>
-        <GhostButton
-          type="button"
-          onClick={handleReloadJuneData}
-          className="w-full flex items-center justify-center gap-2"
-        >
-          <Database size={16} />
-          Reload June 2026 Business Data
-        </GhostButton>
-        {importMessage && <p className="text-xs text-brand-300">{importMessage}</p>}
-      </section>
-
-      <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4 space-y-3">
-        <h2 className="text-sm font-semibold text-slate-300">Export for Accountant</h2>
-        <p className="text-xs text-slate-500">
-          {transactions.length} transactions stored {user ? 'locally and in cloud' : 'locally'}.
-        </p>
-        <GhostButton
-          type="button"
-          onClick={handleExportCsv}
-          className="w-full flex items-center justify-center gap-2"
-        >
-          <FileSpreadsheet size={16} />
-          Export Transactions (CSV)
-        </GhostButton>
-        <GhostButton
-          type="button"
-          onClick={handleExportJson}
-          className="w-full flex items-center justify-center gap-2"
-        >
-          <Download size={16} />
-          Export Full Backup (JSON)
-        </GhostButton>
-        {settings.lastSyncedAt && (
-          <p className="text-[10px] text-slate-600 text-center">
-            Last cloud sync: {new Date(settings.lastSyncedAt).toLocaleString()}
+        <div className="grid gap-2 sm:grid-cols-2">
+          <SettingsAction
+            icon={Upload}
+            label="Import Expensify CSV"
+            hint="Duplicates blocked · personal filtered out"
+            onClick={() => fileInputRef.current?.click()}
+          />
+          <SettingsAction
+            icon={Database}
+            label="Reload June 2026 data"
+            hint="Sync seed income & expenses"
+            onClick={handleReloadJuneData}
+          />
+        </div>
+        {importMessage && (
+          <p className="mt-3 text-xs text-brand-300 bg-brand-950/30 border border-brand-900/30 rounded-lg px-3 py-2">
+            {importMessage}
           </p>
         )}
-      </section>
+      </SettingsSection>
 
-      <p className="text-center text-xs text-slate-600 pb-4">
+      <SettingsSection
+        icon={FileDown}
+        title="Export & backup"
+        description={`${incomeCount} income · ${expenseCount} expenses`}
+      >
+        <div className="grid gap-2 sm:grid-cols-2">
+          <SettingsAction
+            icon={FileSpreadsheet}
+            label="Transactions CSV"
+            hint="For your accountant"
+            onClick={handleExportCsv}
+          />
+          <SettingsAction
+            icon={FileDown}
+            label="Full JSON backup"
+            hint="Complete local backup"
+            onClick={handleExportJson}
+          />
+        </div>
+        {settings.lastSyncedAt && (
+          <p className="mt-3 text-[11px] text-slate-500 text-center">
+            Last cloud sync · {new Date(settings.lastSyncedAt).toLocaleString()}
+          </p>
+        )}
+      </SettingsSection>
+
+      <SettingsSection
+        icon={Receipt}
+        title="Record keeping"
+        description="What to use when you don't have a receipt"
+        variant="muted"
+      >
+        <button
+          type="button"
+          onClick={() => setTipsOpen((o) => !o)}
+          className="flex items-center justify-between w-full text-sm text-slate-300 hover:text-white"
+        >
+          <span>{tipsOpen ? 'Hide tips' : 'Show CRA-friendly proof tips'}</span>
+          <ChevronDown size={16} className={`transition-transform ${tipsOpen ? 'rotate-180' : ''}`} />
+        </button>
+        {tipsOpen && (
+          <ul className="mt-3 space-y-2.5 text-xs text-slate-400 border-t border-slate-800 pt-3">
+            <li>
+              <strong className="text-slate-300">Bank statements</strong> — date, vendor, amount
+              (Expensify counts).
+            </li>
+            <li>
+              <strong className="text-slate-300">Mileage log</strong> — destination, purpose, total
+              (your $760 entry).
+            </li>
+            <li>
+              <strong className="text-slate-300">Invoices & emails</strong> — subcontractor invoices,
+              job confirmations.
+            </li>
+            <li>
+              <strong className="text-slate-300">Notes on expenses</strong> — e.g. &quot;Proof: TD Visa
+              Jun 14&quot; until you attach a photo.
+            </li>
+          </ul>
+        )}
+      </SettingsSection>
+
+      <p className="text-center text-[11px] text-slate-600 pt-1">
         Junk Of Urs Bookkeeper · Offline-first PWA
       </p>
     </div>
