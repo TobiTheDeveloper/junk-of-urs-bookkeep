@@ -14,11 +14,36 @@ import type { TabId } from './types'
 function AppShell() {
   const [tab, setTab] = useState<TabId>('dashboard')
   const [ready, setReady] = useState(false)
+  const [initError, setInitError] = useState<string | null>(null)
 
   useEffect(() => {
+    let cancelled = false
+    let finished = false
+
+    const timeout = window.setTimeout(() => {
+      if (!cancelled && !finished) {
+        setInitError('Startup is taking too long. Try a hard refresh (Ctrl+Shift+R) or clear site data.')
+        setReady(true)
+      }
+    }, 12000)
+
     seedDatabase()
       .then(() => initializeBusinessData())
-      .then(() => setReady(true))
+      .catch((err) => {
+        console.error('Database init failed:', err)
+        setInitError(
+          'Could not open local storage. Disable private browsing or allow site data, then refresh.',
+        )
+      })
+      .finally(() => {
+        finished = true
+        if (!cancelled) setReady(true)
+      })
+
+    return () => {
+      cancelled = true
+      window.clearTimeout(timeout)
+    }
   }, [])
 
   if (!ready) {
@@ -32,6 +57,13 @@ function AppShell() {
 
   return (
     <div className="min-h-dvh bg-slate-950">
+      {initError && (
+        <div className="mx-auto max-w-lg px-4 pt-4">
+          <div className="rounded-xl border border-amber-900/50 bg-amber-950/30 px-4 py-3 text-sm text-amber-100">
+            {initError}
+          </div>
+        </div>
+      )}
       <div className="mx-auto max-w-lg min-h-dvh pb-20">
         <div className="bg-gradient-to-b from-brand-900/30 via-slate-950 to-slate-950 px-4 pt-[max(1rem,env(safe-area-inset-top))] pb-6">
           {tab === 'dashboard' && <Dashboard />}
