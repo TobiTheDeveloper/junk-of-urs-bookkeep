@@ -3,6 +3,7 @@ import { Briefcase, Truck, FileSpreadsheet } from 'lucide-react'
 import { GhostButton } from '../components/FormFields'
 import { useCategories, useSettings, useTransactions } from '../hooks/useData'
 import { calculateSummary } from '../lib/calculations'
+import { normalizeCategoryName } from '../lib/dedupe'
 import { exportCategoryBreakdownCsv, exportSummaryCsv } from '../lib/export'
 import { formatCurrency, getMonthLabel } from '../lib/format'
 import { formatDueDate, getQuarterlyReminders } from '../lib/taxReminders'
@@ -43,13 +44,27 @@ export function ReportsPage() {
       ? `${selectedYear} (Full Year)`
       : getMonthLabel(selectedYear, selectedMonth as number)
 
-  const topCategories = Object.entries(summary.expenseByCategory)
-    .map(([catId, amount]) => ({
-      name: categories.find((c) => c.id === catId)?.name ?? 'Uncategorized',
-      color: categories.find((c) => c.id === catId)?.color ?? '#64748b',
-      amount,
-    }))
-    .sort((a, b) => b.amount - a.amount)
+  const topCategories = Array.from(
+    Object.entries(summary.expenseByCategory).reduce(
+      (acc, [catId, amount]) => {
+        const cat = categories.find((c) => c.id === catId)
+        const name = cat?.name ?? 'Uncategorized'
+        const key = normalizeCategoryName(name)
+        const existing = acc.get(key)
+        if (existing) {
+          existing.amount += amount
+        } else {
+          acc.set(key, {
+            name,
+            color: cat?.color ?? '#64748b',
+            amount,
+          })
+        }
+        return acc
+      },
+      new Map<string, { name: string; color: string; amount: number }>(),
+    ).values(),
+  ).sort((a, b) => b.amount - a.amount)
 
   const maxCategoryAmount = topCategories[0]?.amount ?? 1
 
@@ -133,10 +148,36 @@ export function ReportsPage() {
             <Row label="Net Profit (taxable)" value={summary.netProfit} currency={currency} bold />
           </div>
           <Row
-            label={`Tax Reserve (${settings.incomeTaxRate + settings.selfEmploymentRate}%)`}
+            label={`Tax Reserve (CRA 2026 · ${summary.effectiveTaxRate.toFixed(1)}%)`}
             value={summary.taxReserve}
             currency={currency}
             accent="amber"
+          />
+          <Row
+            label="Federal income tax"
+            value={summary.taxBreakdown.federalIncomeTax}
+            currency={currency}
+            muted
+          />
+          <Row
+            label="Ontario income tax"
+            value={summary.taxBreakdown.ontarioIncomeTax}
+            currency={currency}
+            muted
+          />
+          {summary.taxBreakdown.ontarioHealthPremium > 0 && (
+            <Row
+              label="Ontario Health Premium"
+              value={summary.taxBreakdown.ontarioHealthPremium}
+              currency={currency}
+              muted
+            />
+          )}
+          <Row
+            label="CPP contributions"
+            value={summary.taxBreakdown.cppContributions}
+            currency={currency}
+            muted
           />
           <div className="border-t border-slate-800 pt-3">
             <Row label="Estimated Take-Home" value={summary.takeHome} currency={currency} bold accent="sky" />

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Plus,
   Trash2,
@@ -35,14 +35,17 @@ import {
   useTransactions,
 } from '../hooks/useData'
 import { db } from '../db/database'
+import { calculateSummary } from '../lib/calculations'
+import { normalizeCategoryName } from '../lib/dedupe'
 import { exportTransactionsCsv } from '../lib/export'
+import { formatCurrency } from '../lib/format'
 import {
   analyzeExpensifyCsv,
   importExpensifyCsv,
   seedJune2026BusinessData,
 } from '../lib/seedBusinessData'
 import { summarizeImportResult } from '../lib/expensifyImport'
-import { getOntarioTaxExplanation, ONTARIO_SOLE_PROP_TAX } from '../lib/taxReminders'
+import { getOntarioTaxExplanation } from '../lib/taxReminders'
 
 export function SettingsPage() {
   const settings = useSettings()
@@ -55,8 +58,6 @@ export function SettingsPage() {
 
   const [businessName, setBusinessName] = useState('')
   const [businessStartDate, setBusinessStartDate] = useState('2026-06-01')
-  const [incomeTaxRate, setIncomeTaxRate] = useState('')
-  const [selfEmploymentRate, setSelfEmploymentRate] = useState('')
   const [quarterlyRemindersEnabled, setQuarterlyRemindersEnabled] = useState(true)
   const [importMessage, setImportMessage] = useState('')
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -65,8 +66,6 @@ export function SettingsPage() {
     if (settings) {
       setBusinessName(settings.businessName)
       setBusinessStartDate(settings.businessStartDate ?? '2026-06-01')
-      setIncomeTaxRate(String(settings.incomeTaxRate))
-      setSelfEmploymentRate(String(settings.selfEmploymentRate))
       setQuarterlyRemindersEnabled(settings.quarterlyRemindersEnabled)
     }
   }, [settings])
@@ -76,8 +75,6 @@ export function SettingsPage() {
     await updateSettings({
       businessName,
       businessStartDate,
-      incomeTaxRate: parseFloat(incomeTaxRate) || ONTARIO_SOLE_PROP_TAX.incomeTaxRate,
-      selfEmploymentRate: parseFloat(selfEmploymentRate) || ONTARIO_SOLE_PROP_TAX.cppRate,
       quarterlyRemindersEnabled,
       dismissedReminderKey: quarterlyRemindersEnabled ? settings?.dismissedReminderKey ?? null : null,
     })
@@ -140,7 +137,18 @@ export function SettingsPage() {
     )
   }
 
-  const combinedRate = (parseFloat(incomeTaxRate) || 0) + (parseFloat(selfEmploymentRate) || 0)
+  const year = new Date().getFullYear()
+  const ytdSummary = useMemo(() => {
+    if (!settings) return null
+    return calculateSummary(transactions, categories, settings, year)
+  }, [transactions, categories, settings, year])
+
+  const uniqueCategoryCount = useMemo(() => {
+    return new Set(categories.map((c) => normalizeCategoryName(c.name))).size
+  }, [categories])
+
+  const currency = settings?.currency ?? 'CAD'
+  const effectiveTaxRate = ytdSummary?.effectiveTaxRate ?? 0
   const incomeCount = transactions.filter((t) => t.type === 'income').length
   const expenseCount = transactions.filter((t) => t.type === 'expense').length
 
@@ -155,7 +163,7 @@ export function SettingsPage() {
 
         <div className="grid grid-cols-3 gap-2">
           <SettingsStatPill label="Transactions" value={String(transactions.length)} />
-          <SettingsStatPill label="Tax reserve" value={`${combinedRate.toFixed(1)}%`} tone="amber" />
+          <SettingsStatPill label="Tax reserve" value={`${effectiveTaxRate.toFixed(1)}%`} tone="amber" />
           <SettingsStatPill label="Storage" value="Cloud + local" tone="brand" />
         </div>
       </header>
@@ -186,38 +194,42 @@ export function SettingsPage() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500 mb-3">
-              Ontario tax rates
+          <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+              CRA 2026 tax estimate (from your books)
             </p>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <FieldLabel>Federal + ON (%)</FieldLabel>
-                <TextInput
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="50"
-                  value={incomeTaxRate}
-                  onChange={(e) => setIncomeTaxRate(e.target.value)}
+            {ytdSummary && (
+              <>
+                <TaxEstimateRow
+                  label="Federal income tax"
+                  value={formatCurrency(ytdSummary.taxBreakdown.federalIncomeTax, currency)}
                 />
-              </div>
-              <div>
-                <FieldLabel>CPP (%)</FieldLabel>
-                <TextInput
-                  type="number"
-                  step="0.1"
-                  min="0"
-                  max="50"
-                  value={selfEmploymentRate}
-                  onChange={(e) => setSelfEmploymentRate(e.target.value)}
+                <TaxEstimateRow
+                  label="Ontario income tax"
+                  value={formatCurrency(ytdSummary.taxBreakdown.ontarioIncomeTax, currency)}
                 />
-              </div>
-            </div>
-            <div className="mt-3 flex items-center justify-between rounded-lg bg-amber-950/40 border border-amber-900/30 px-3 py-2">
-              <span className="text-xs text-amber-200/80">Combined reserve</span>
-              <span className="text-sm font-bold text-amber-300">{combinedRate.toFixed(2)}%</span>
-            </div>
+                {ytdSummary.taxBreakdown.ontarioHealthPremium > 0 && (
+                  <TaxEstimateRow
+                    label="Ontario Health Premium"
+                    value={formatCurrency(ytdSummary.taxBreakdown.ontarioHealthPremium, currency)}
+                  />
+                )}
+                <TaxEstimateRow
+                  label="CPP (Schedule 8)"
+                  value={formatCurrency(ytdSummary.taxBreakdown.cppContributions, currency)}
+                />
+                <div className="flex items-center justify-between rounded-lg bg-amber-950/40 border border-amber-900/30 px-3 py-2 mt-2">
+                  <span className="text-xs text-amber-200/80">Total set-aside · YTD</span>
+                  <span className="text-sm font-bold text-amber-300 tabular-nums">
+                    {formatCurrency(ytdSummary.taxReserve, currency)}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 pt-1">
+                  Effective rate {effectiveTaxRate.toFixed(1)}% on{' '}
+                  {formatCurrency(ytdSummary.netProfit, currency)} net profit
+                </p>
+              </>
+            )}
           </div>
 
           <SettingsToggle
@@ -245,7 +257,7 @@ export function SettingsPage() {
       <SettingsSection
         icon={Tags}
         title="Expense categories"
-        description={`${categories.length} categories · ${expenseCount} expenses logged`}
+        description={`${uniqueCategoryCount} categories · ${expenseCount} expenses logged`}
       >
         <div className="flex gap-2 mb-3">
           <TextInput
@@ -409,6 +421,15 @@ export function SettingsPage() {
       <p className="text-center text-[11px] text-slate-600 pt-1">
         Junk Of Urs Bookkeeper · Sign in required
       </p>
+    </div>
+  )
+}
+
+function TaxEstimateRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between text-xs">
+      <span className="text-slate-400">{label}</span>
+      <span className="font-semibold text-slate-200 tabular-nums">{value}</span>
     </div>
   )
 }

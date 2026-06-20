@@ -1,7 +1,6 @@
 import type { Category, QuarterlyTaxReminder, Settings, Transaction } from '../types'
 import { calculateSummary } from './calculations'
-
-/** CRA personal income tax instalments (Ontario sole proprietorship) */
+import { getOntarioTaxEngineExplanation } from './taxEngine'
 const CRA_INSTALMENT_DATES: { quarter: 1 | 2 | 3 | 4; month: number; day: number }[] = [
   { quarter: 1, month: 3, day: 15 },
   { quarter: 2, month: 6, day: 15 },
@@ -45,7 +44,8 @@ export function getQuarterlyReminders(
   now = new Date(),
 ): QuarterlyTaxReminder[] {
   const taxYear = now.getFullYear()
-  const combinedRate = (settings.incomeTaxRate + settings.selfEmploymentRate) / 100
+  const annualSummary = calculateSummary(transactions, categories, settings, taxYear)
+  const annualTax = annualSummary.taxBreakdown.totalTaxReserve
 
   return ([1, 2, 3, 4] as const).map((quarter) => {
     const dueDate = quarterDueDate(taxYear, quarter)
@@ -57,7 +57,7 @@ export function getQuarterlyReminders(
       taxYear,
       quarter,
     )
-    const estimatedPayment = Math.max(0, (ytdNetProfit * combinedRate) / 4)
+    const estimatedPayment = Math.max(0, annualTax / 4)
 
     return {
       key: reminderKey(taxYear, quarter),
@@ -117,16 +117,14 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return result === 'granted'
 }
 
-/** Ontario sole proprietorship default reserve rates (estimate). */
+/** Lowest combined marginal bracket — reference only; app uses full CRA engine. */
 export const ONTARIO_SOLE_PROP_TAX = {
-  /** Federal 15% + Ontario 5.05% on first income bracket */
-  incomeTaxRate: 20.05,
-  /** CPP self-employed contribution rate (2025/2026) */
+  incomeTaxRate: 19.05,
   cppRate: 11.9,
-  combinedRate: 31.95,
+  combinedRate: 30.95,
   hstRate: 13,
 } as const
 
 export function getOntarioTaxExplanation(): string {
-  return `Ontario estimate uses ${ONTARIO_SOLE_PROP_TAX.incomeTaxRate}% combined federal + provincial income tax (lowest bracket) plus ${ONTARIO_SOLE_PROP_TAX.cppRate}% CPP on net self-employment income. HST (13%) is separate if you register. Adjust rates as income grows.`
+  return getOntarioTaxEngineExplanation()
 }

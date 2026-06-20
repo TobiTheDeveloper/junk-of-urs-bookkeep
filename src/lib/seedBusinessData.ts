@@ -2,10 +2,10 @@ import { db, getCategoryIdByName, nowIso } from '../db/database'
 import { assertAuthenticated } from './authGuard'
 import {
   findExistingTransaction,
+  removeDuplicateCategories,
   removeDuplicateTransactions,
 } from './dedupe'
 import { scheduleSync } from './sync'
-import { ONTARIO_SOLE_PROP_TAX } from './taxReminders'
 import type { ExpensifyImportResult, Transaction } from '../types'
 import {
   classifyExpensifyExpense,
@@ -241,6 +241,7 @@ export async function importExpensifyCsv(
   }
 
   if (result.imported > 0) scheduleSync()
+  await removeDuplicateCategories()
   await removeDuplicateTransactions()
   return result
 }
@@ -262,8 +263,6 @@ export async function seedJune2026BusinessData(): Promise<
   await db.settings.update('main', {
     businessStartDate: '2026-06-01',
     currency: 'CAD',
-    incomeTaxRate: ONTARIO_SOLE_PROP_TAX.incomeTaxRate,
-    selfEmploymentRate: ONTARIO_SOLE_PROP_TAX.cppRate,
     updatedAt: nowIso(),
   })
 
@@ -281,6 +280,7 @@ export async function seedJune2026BusinessData(): Promise<
     else result.duplicates++
   }
 
+  result.duplicatesRemoved += await removeDuplicateCategories()
   result.duplicatesRemoved += await removeDuplicateTransactions()
 
   if (result.imported > 0 || result.incomeImported > 0) scheduleSync()

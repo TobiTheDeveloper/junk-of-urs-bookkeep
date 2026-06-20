@@ -1,3 +1,5 @@
+import type { TaxBreakdown } from '../lib/taxEngine'
+
 export type TransactionType = 'income' | 'expense'
 export type IncomeSource = 'subcontractor' | 'junk_removal'
 export type SyncStatus = 'idle' | 'syncing' | 'error' | 'success'
@@ -64,6 +66,8 @@ export interface FinancialSummary {
   taxReserve: number
   takeHome: number
   expenseByCategory: Record<string, number>
+  taxBreakdown: TaxBreakdown
+  effectiveTaxRate: number
 }
 
 export interface QuarterlyTaxReminder {

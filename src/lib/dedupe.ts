@@ -1,5 +1,5 @@
 import { db, nowIso } from '../db/database'
-import type { Transaction } from '../types'
+import type { Category, Transaction } from '../types'
 
 type FingerprintInput = Pick<
   Transaction,
@@ -106,6 +106,48 @@ export async function removeDuplicateTransactions(): Promise<number> {
       await db.receipts.delete(tx.receiptId)
     }
     await db.transactions.delete(id)
+  }
+
+  return removed
+}
+
+export function normalizeCategoryName(name: string): string {
+  return name.trim().toLowerCase().replace(/\s+/g, ' ')
+}
+
+export async function removeDuplicateCategories(): Promise<number> {
+  const all = await db.categories.toArray()
+  const groups = new Map<string, Category[]>()
+
+  for (const cat of all) {
+    const key = normalizeCategoryName(cat.name)
+    const group = groups.get(key) ?? []
+    group.push(cat)
+    groups.set(key, group)
+  }
+
+  let removed = 0
+
+  for (const group of groups.values()) {
+    if (group.length <= 1) continue
+
+    group.sort((a, b) => {
+      if (a.isDefault !== b.isDefault) return a.isDefault ? -1 : 1
+      return a.updatedAt.localeCompare(b.updatedAt)
+    })
+
+    const keep = group[0]
+    for (const duplicate of group.slice(1)) {
+      const linked = await db.transactions.filter((t) => t.categoryId === duplicate.id).toArray()
+      for (const tx of linked) {
+        await db.transactions.update(tx.id, {
+          categoryId: keep.id,
+          updatedAt: nowIso(),
+        })
+      }
+      await db.categories.delete(duplicate.id)
+      removed++
+    }
   }
 
   return removed

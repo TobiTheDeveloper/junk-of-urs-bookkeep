@@ -1,4 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie'
+import { normalizeCategoryName, removeDuplicateCategories } from '../lib/dedupe'
 import type { Category, Receipt, Settings, Transaction } from '../types'
 
 export const DEFAULT_CATEGORIES: Omit<Category, 'id' | 'updatedAt'>[] = [
@@ -22,7 +23,7 @@ export const DEFAULT_SETTINGS: Settings = {
   id: 'main',
   businessName: 'Junk Of Urs',
   businessStartDate: '2026-06-01',
-  incomeTaxRate: 20.05,
+  incomeTaxRate: 19.05,
   selfEmploymentRate: 11.9,
   fiscalYearStart: 1,
   currency: 'CAD',
@@ -141,14 +142,17 @@ export async function seedDatabase() {
       })),
     )
   } else {
-    const names = new Set((await db.categories.toArray()).map((c) => c.name))
+    const existing = await db.categories.toArray()
+    const names = new Set(existing.map((c) => normalizeCategoryName(c.name)))
     const now = new Date().toISOString()
     for (const cat of DEFAULT_CATEGORIES) {
-      if (!names.has(cat.name)) {
+      if (!names.has(normalizeCategoryName(cat.name))) {
         await db.categories.add({ ...cat, id: crypto.randomUUID(), updatedAt: now })
       }
     }
   }
+
+  await removeDuplicateCategories()
 
   const settings = await db.settings.get('main')
   if (!settings) {
@@ -166,6 +170,8 @@ export function nowIso() {
 }
 
 export async function getCategoryIdByName(name: string): Promise<string | null> {
-  const cat = await db.categories.filter((c) => c.name === name).first()
-  return cat?.id ?? null
+  const target = normalizeCategoryName(name)
+  const cats = await db.categories.toArray()
+  const match = cats.find((c) => normalizeCategoryName(c.name) === target)
+  return match?.id ?? null
 }

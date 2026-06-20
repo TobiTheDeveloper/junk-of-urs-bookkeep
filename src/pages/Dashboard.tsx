@@ -71,7 +71,6 @@ export function Dashboard() {
   }
 
   const monthName = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(now)
-  const combinedTaxRate = settings.incomeTaxRate + settings.selfEmploymentRate
 
   return (
     <div className="space-y-6">
@@ -103,7 +102,7 @@ export function Dashboard() {
         expenses={summary.totalExpenses}
         taxReserve={summary.taxReserve}
         takeHome={summary.takeHome}
-        taxRatePercent={combinedTaxRate}
+        taxRatePercent={summary.effectiveTaxRate}
       />
 
       <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">

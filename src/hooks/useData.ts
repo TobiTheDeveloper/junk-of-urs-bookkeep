@@ -1,7 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db, nowIso } from '../db/database'
 import { assertAuthenticated } from '../lib/authGuard'
-import { buildImportKey, findExistingTransaction } from '../lib/dedupe'
+import { buildImportKey, findExistingTransaction, normalizeCategoryName } from '../lib/dedupe'
 import { scheduleSync } from '../lib/sync'
 import type { Category, Receipt, Settings, Transaction } from '../types'
 
@@ -84,9 +84,17 @@ export async function addReceipt(
 
 export async function addCategory(name: string, icon = 'tag', color = '#64748b') {
   assertAuthenticated()
+  const trimmed = name.trim()
+  if (!trimmed) throw new Error('Category name is required')
+
+  const existing = (await db.categories.toArray()).find(
+    (c) => normalizeCategoryName(c.name) === normalizeCategoryName(trimmed),
+  )
+  if (existing) return existing
+
   const category: Category = {
     id: crypto.randomUUID(),
-    name,
+    name: trimmed,
     icon,
     color,
     isDefault: false,

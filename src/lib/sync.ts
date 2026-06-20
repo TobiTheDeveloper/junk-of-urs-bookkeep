@@ -5,6 +5,8 @@ import {
   backfillImportKeys,
   buildImportKey,
   findExistingTransaction,
+  normalizeCategoryName,
+  removeDuplicateCategories,
   removeDuplicateTransactions,
 } from './dedupe'
 import { getSupabase, isSupabaseConfigured } from './supabase'
@@ -193,13 +195,34 @@ function fromRemoteSettings(row: Record<string, unknown>): Partial<Settings> {
   }
 }
 
-async function mergeCategory(incoming: Category) {
-  const existing = await db.categories.get(incoming.id)
-  if (!existing || new Date(incoming.updatedAt) >= new Date(existing.updatedAt)) {
-    await db.categories.put(incoming)
-    return true
+async function mergeCategory(incoming: Category): Promise<boolean> {
+  const existingById = await db.categories.get(incoming.id)
+  if (existingById) {
+    if (new Date(incoming.updatedAt) >= new Date(existingById.updatedAt)) {
+      await db.categories.put(incoming)
+      return true
+    }
+    return false
   }
-  return false
+
+  const all = await db.categories.toArray()
+  const existingByName = all.find(
+    (c) => normalizeCategoryName(c.name) === normalizeCategoryName(incoming.name),
+  )
+  if (existingByName) {
+    if (new Date(incoming.updatedAt) >= new Date(existingByName.updatedAt)) {
+      await db.categories.update(existingByName.id, {
+        icon: incoming.icon,
+        color: incoming.color,
+        isDefault: existingByName.isDefault || incoming.isDefault,
+        updatedAt: incoming.updatedAt,
+      })
+    }
+    return false
+  }
+
+  await db.categories.put(incoming)
+  return true
 }
 
 async function mergeTransaction(incoming: Transaction): Promise<boolean> {
@@ -373,6 +396,7 @@ export async function syncToCloud(): Promise<SyncResult> {
     await db.settings.update('main', { lastSyncedAt: nowIso() })
 
     await backfillImportKeys()
+    await removeDuplicateCategories()
     await removeDuplicateTransactions()
 
     return { ok: true, message: 'Sync complete', pushed, pulled }
@@ -429,6 +453,7 @@ export async function pullFromCloud(userId: string): Promise<SyncResult> {
     })
 
     await backfillImportKeys()
+    await removeDuplicateCategories()
     await removeDuplicateTransactions()
 
     return { ok: true, message: 'Cloud data downloaded', pushed: 0, pulled }

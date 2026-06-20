@@ -1,4 +1,5 @@
 import type { Category, FinancialSummary, Settings, Transaction } from '../types'
+import { calculateOntarioSolePropTax } from './taxEngine'
 
 function isInPeriod(dateStr: string, year: number, month?: number): boolean {
   const d = new Date(dateStr + 'T12:00:00')
@@ -14,14 +15,13 @@ function deductibleAmount(transaction: Transaction, categories: Category[]): num
   if (category?.name === 'Meals (50% deductible)') {
     return transaction.amount * 0.5
   }
-  // Mileage, fuel, equipment, travel — full deduction
   return transaction.amount
 }
 
 export function calculateSummary(
   transactions: Transaction[],
   categories: Category[],
-  settings: Settings,
+  _settings: Settings,
   year: number,
   month?: number,
 ): FinancialSummary {
@@ -45,8 +45,8 @@ export function calculateSummary(
   )
 
   const netProfit = Math.max(0, grossIncome - deductibleExpenses)
-  const combinedRate = (settings.incomeTaxRate + settings.selfEmploymentRate) / 100
-  const taxReserve = netProfit * combinedRate
+  const taxBreakdown = calculateOntarioSolePropTax(netProfit)
+  const taxReserve = taxBreakdown.totalTaxReserve
   const takeHome = grossIncome - totalExpenses - taxReserve
 
   const expenseByCategory: Record<string, number> = {}
@@ -65,6 +65,8 @@ export function calculateSummary(
     taxReserve,
     takeHome,
     expenseByCategory,
+    taxBreakdown,
+    effectiveTaxRate: taxBreakdown.effectiveRate * 100,
   }
 }
 
