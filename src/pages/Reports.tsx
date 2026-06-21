@@ -148,34 +148,17 @@ export function ReportsPage() {
             <Row label="Net Profit (taxable)" value={summary.netProfit} currency={currency} bold />
           </div>
           <Row
-            label={`Tax Reserve (CRA 2026 · ${summary.effectiveTaxRate.toFixed(1)}%)`}
+            label={`Tax Reserve (${summary.effectiveTaxRate.toFixed(0)}% of net profit)`}
             value={summary.taxReserve}
             currency={currency}
             accent="amber"
           />
+          <p className="text-[11px] text-slate-500 -mt-1">
+            {summary.taxBreakdown.planningTierLabel}
+          </p>
           <Row
-            label="Federal income tax"
-            value={summary.taxBreakdown.federalIncomeTax}
-            currency={currency}
-            muted
-          />
-          <Row
-            label="Ontario income tax"
-            value={summary.taxBreakdown.ontarioIncomeTax}
-            currency={currency}
-            muted
-          />
-          {summary.taxBreakdown.ontarioHealthPremium > 0 && (
-            <Row
-              label="Ontario Health Premium"
-              value={summary.taxBreakdown.ontarioHealthPremium}
-              currency={currency}
-              muted
-            />
-          )}
-          <Row
-            label="CPP contributions"
-            value={summary.taxBreakdown.cppContributions}
+            label="CPP reference (included in rate)"
+            value={summary.taxBreakdown.cppReference}
             currency={currency}
             muted
           />

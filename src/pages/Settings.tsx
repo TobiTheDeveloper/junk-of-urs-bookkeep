@@ -179,7 +179,11 @@ export function SettingsPage() {
 
         <div className="grid grid-cols-3 gap-2">
           <SettingsStatPill label="Transactions" value={String(transactions.length)} />
-          <SettingsStatPill label="Tax reserve" value={`${effectiveTaxRate.toFixed(1)}%`} tone="amber" />
+          <SettingsStatPill
+            label="Tax reserve"
+            value={`${effectiveTaxRate.toFixed(0)}%`}
+            tone="amber"
+          />
           <SettingsStatPill label="Storage" value="Cloud + local" tone="brand" />
         </div>
       </header>
@@ -212,37 +216,32 @@ export function SettingsPage() {
 
           <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
             <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-              CRA 2026 tax estimate (from your books)
+              Tax reserve · sole proprietorship planning
             </p>
             {ytdSummary && (
               <>
                 <TaxEstimateRow
-                  label="Federal income tax"
-                  value={formatCurrency(ytdSummary.taxBreakdown.federalIncomeTax, currency)}
+                  label="Net profit (YTD)"
+                  value={formatCurrency(ytdSummary.netProfit, currency)}
                 />
                 <TaxEstimateRow
-                  label="Ontario income tax"
-                  value={formatCurrency(ytdSummary.taxBreakdown.ontarioIncomeTax, currency)}
+                  label="Planning rate"
+                  value={`${(ytdSummary.taxBreakdown.planningRate * 100).toFixed(0)}%`}
                 />
-                {ytdSummary.taxBreakdown.ontarioHealthPremium > 0 && (
-                  <TaxEstimateRow
-                    label="Ontario Health Premium"
-                    value={formatCurrency(ytdSummary.taxBreakdown.ontarioHealthPremium, currency)}
-                  />
-                )}
                 <TaxEstimateRow
-                  label="CPP (Schedule 8)"
-                  value={formatCurrency(ytdSummary.taxBreakdown.cppContributions, currency)}
+                  label="CPP reference (in rate)"
+                  value={formatCurrency(ytdSummary.taxBreakdown.cppReference, currency)}
                 />
                 <div className="flex items-center justify-between rounded-lg bg-amber-950/40 border border-amber-900/30 px-3 py-2 mt-2">
-                  <span className="text-xs text-amber-200/80">Total set-aside · YTD</span>
+                  <span className="text-xs text-amber-200/80">
+                    Net profit × {(ytdSummary.taxBreakdown.planningRate * 100).toFixed(0)}%
+                  </span>
                   <span className="text-sm font-bold text-amber-300 tabular-nums">
                     {formatCurrency(ytdSummary.taxReserve, currency)}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-500 pt-1">
-                  Effective rate {effectiveTaxRate.toFixed(1)}% on{' '}
-                  {formatCurrency(ytdSummary.netProfit, currency)} net profit
+                  {ytdSummary.taxBreakdown.planningTierLabel}
                 </p>
               </>
             )}

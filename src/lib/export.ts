@@ -83,12 +83,10 @@ export function exportSummaryCsv(
     ['Total Expenses', formatCurrency(summary.totalExpenses, currency)],
     ['Deductible Expenses', formatCurrency(summary.deductibleExpenses, currency)],
     ['Net Profit (Taxable)', formatCurrency(summary.netProfit, currency)],
-    ['Federal Income Tax', formatCurrency(summary.taxBreakdown.federalIncomeTax, currency)],
-    ['Ontario Income Tax', formatCurrency(summary.taxBreakdown.ontarioIncomeTax, currency)],
-    ['Ontario Health Premium', formatCurrency(summary.taxBreakdown.ontarioHealthPremium, currency)],
-    ['CPP Contributions', formatCurrency(summary.taxBreakdown.cppContributions, currency)],
-    ['Tax Reserve (Total)', formatCurrency(summary.taxReserve, currency)],
-    ['Effective Tax Rate', `${summary.effectiveTaxRate.toFixed(1)}%`],
+    ['Planning Rate', `${summary.effectiveTaxRate.toFixed(0)}%`],
+    ['Tax Reserve (Net Profit × Rate)', formatCurrency(summary.taxReserve, currency)],
+    ['CPP Reference (included in rate)', formatCurrency(summary.taxBreakdown.cppReference, currency)],
+    ['Planning Tier', summary.taxBreakdown.planningTierLabel],
     ['Estimated Take-Home', formatCurrency(summary.takeHome, currency)],
   ]
 

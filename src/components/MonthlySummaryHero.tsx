@@ -77,7 +77,9 @@ export function MonthlySummaryHero({
                 {value}
               </p>
               {label === 'Tax set-aside' && (
-                <p className="mt-0.5 text-[11px] text-slate-500">{taxRatePercent.toFixed(1)}% effective</p>
+                <p className="mt-0.5 text-[11px] text-slate-500">
+                  {taxRatePercent.toFixed(0)}% of net profit
+                </p>
               )}
             </div>
           </div>

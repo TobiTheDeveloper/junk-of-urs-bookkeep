@@ -1,6 +1,6 @@
 import type { Category, QuarterlyTaxReminder, Settings, Transaction } from '../types'
 import { calculateSummary } from './calculations'
-import { getOntarioTaxEngineExplanation } from './taxEngine'
+import { getSolePropTaxExplanation } from './taxEngine'
 const CRA_INSTALMENT_DATES: { quarter: 1 | 2 | 3 | 4; month: number; day: number }[] = [
   { quarter: 1, month: 3, day: 15 },
   { quarter: 2, month: 6, day: 15 },
@@ -117,14 +117,12 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return result === 'granted'
 }
 
-/** Lowest combined marginal bracket — reference only; app uses full CRA engine. */
+/** Default planning reserve — net profit × 25% under $60k */
 export const ONTARIO_SOLE_PROP_TAX = {
-  incomeTaxRate: 19.05,
-  cppRate: 11.9,
-  combinedRate: 30.95,
+  planningRate: 25,
   hstRate: 13,
 } as const
 
 export function getOntarioTaxExplanation(): string {
-  return getOntarioTaxEngineExplanation()
+  return getSolePropTaxExplanation()
 }

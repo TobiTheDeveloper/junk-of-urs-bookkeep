@@ -1,195 +1,131 @@
 /**
- * Ontario sole proprietorship tax estimates — CRA 2026 figures.
- * Sources: canada.ca tax rates, CPP contribution tables, T4032-ON payroll guide.
- * Estimates only; excludes HST/GST, RRSP, other credits, and Ontario surtax above ~$93k taxable.
+ * Ontario sole proprietorship — tax reserve for planning.
+ *
+ * A sole prop has no separate business tax rate: profit is personal income.
+ * Reserve = net profit × planning rate (covers income tax + CPP set-aside).
+ *
+ * 2026 reference brackets (not used for reserve math):
+ *   Federal: 14% to $58,523, 20.5% to $117,045
+ *   Ontario: 5.05% to $53,891, 9.15% to $107,785
+ *   Combined marginal ≈ 19%–25% on net profit, plus CPP (both portions).
  */
-
-export interface TaxBracket {
-  upTo: number
-  rate: number
-}
 
 export interface TaxBreakdown {
   netProfit: number
-  cpp1: number
-  cpp2: number
-  cppContributions: number
-  cppDeduction: number
-  taxableIncome: number
-  federalIncomeTax: number
-  ontarioIncomeTax: number
-  ontarioHealthPremium: number
-  incomeTax: number
+  /** Planning rate applied to net profit (0.25, 0.29, or 0.30) */
+  planningRate: number
+  planningTierLabel: string
   totalTaxReserve: number
   effectiveRate: number
-  marginalCombinedRate: number
+  /** Estimated CPP (Schedule 8) — for reference; included in planning rate, not added on top */
+  cppReference: number
+  /** Combined federal + Ontario marginal at this profit — reference only */
+  marginalCombinedReference: number
 }
 
-/** CRA 2026 — indexed brackets and credits */
-export const CRA_2026 = {
-  federal: {
-    brackets: [
-      { upTo: 58_523, rate: 0.14 },
-      { upTo: 117_045, rate: 0.205 },
-      { upTo: 181_440, rate: 0.26 },
-      { upTo: 258_482, rate: 0.29 },
-      { upTo: Infinity, rate: 0.33 },
-    ] satisfies TaxBracket[],
-    maxBasicPersonalAmount: 16_452,
-    minBasicPersonalAmount: 14_829,
-    bpaPhaseOutStart: 181_440,
-    bpaPhaseOutEnd: 258_482,
-    lowestRate: 0.14,
-  },
-  ontario: {
-    brackets: [
-      { upTo: 53_891, rate: 0.0505 },
-      { upTo: 107_785, rate: 0.0915 },
-      { upTo: 150_000, rate: 0.1116 },
-      { upTo: 220_000, rate: 0.1216 },
-      { upTo: Infinity, rate: 0.1316 },
-    ] satisfies TaxBracket[],
-    basicPersonalAmount: 12_989,
-    lowestRate: 0.0505,
-  },
-  cpp: {
-    basicExemption: 3_500,
-    ympe: 74_600,
-    yampe: 85_000,
-    cpp1RateSelfEmployed: 0.119,
-    cpp2RateSelfEmployed: 0.08,
-    maxCpp1: 8_460.9,
-    maxCpp2: 832,
-  },
+export const PLANNING_THRESHOLDS = {
+  mid: 60_000,
+  high: 100_000,
 } as const
 
-export function calculateMarginalTax(taxableIncome: number, brackets: TaxBracket[]): number {
-  if (taxableIncome <= 0) return 0
+export const PLANNING_RATES = {
+  /** Under $60k net profit */
+  standard: 0.25,
+  /** $60k–$100k net profit */
+  mid: 0.29,
+  /** Over $100k net profit */
+  high: 0.3,
+} as const
 
-  let tax = 0
-  let previousCeiling = 0
+/** CRA 2026 marginal brackets — reference display only */
+export const REFERENCE_BRACKETS_2026 = {
+  federal: [
+    { upTo: 58_523, rate: 0.14, label: '14% on first $58,523' },
+    { upTo: 117_045, rate: 0.205, label: '20.5% up to $117,045' },
+  ],
+  ontario: [
+    { upTo: 53_891, rate: 0.0505, label: '5.05% on first $53,891' },
+    { upTo: 107_785, rate: 0.0915, label: '9.15% on next bracket' },
+  ],
+} as const
 
-  for (const bracket of brackets) {
-    const taxableInBracket = Math.min(taxableIncome, bracket.upTo) - previousCeiling
-    if (taxableInBracket <= 0) break
-    tax += taxableInBracket * bracket.rate
-    previousCeiling = bracket.upTo
-    if (taxableIncome <= bracket.upTo) break
-  }
-
-  return tax
+export function getPlanningTaxRate(netProfit: number): number {
+  if (netProfit < PLANNING_THRESHOLDS.mid) return PLANNING_RATES.standard
+  if (netProfit < PLANNING_THRESHOLDS.high) return PLANNING_RATES.mid
+  return PLANNING_RATES.high
 }
 
-export function federalBasicPersonalAmount(taxableIncome: number): number {
-  const { maxBasicPersonalAmount, minBasicPersonalAmount, bpaPhaseOutStart, bpaPhaseOutEnd } =
-    CRA_2026.federal
-
-  if (taxableIncome <= bpaPhaseOutStart) return maxBasicPersonalAmount
-  if (taxableIncome >= bpaPhaseOutEnd) return minBasicPersonalAmount
-
-  const phaseRange = bpaPhaseOutEnd - bpaPhaseOutStart
-  const reduction =
-    ((taxableIncome - bpaPhaseOutStart) / phaseRange) *
-    (maxBasicPersonalAmount - minBasicPersonalAmount)
-  return maxBasicPersonalAmount - reduction
+export function getPlanningTierLabel(netProfit: number): string {
+  if (netProfit < PLANNING_THRESHOLDS.mid) {
+    return 'Under $60k net profit — 25% reserve is usually safe'
+  }
+  if (netProfit < PLANNING_THRESHOLDS.high) {
+    return '$60k–$100k net profit — 29% reserve (increase toward 28–30%)'
+  }
+  return 'Over $100k net profit — 30% reserve; consider incorporation'
 }
 
-/** Schedule 8 — self-employed CPP1 + CPP2 (both employer and employee portions). */
-export function calculateSelfEmployedCpp(netSelfEmploymentIncome: number): {
-  cpp1: number
-  cpp2: number
-  total: number
-  deductibleEmployerShare: number
-} {
-  if (netSelfEmploymentIncome <= 0) {
-    return { cpp1: 0, cpp2: 0, total: 0, deductibleEmployerShare: 0 }
-  }
+/** Schedule 8 CPP reference — not added to reserve (planning rate already covers it). */
+export function estimateCppReference(netSelfEmploymentIncome: number): number {
+  if (netSelfEmploymentIncome <= 0) return 0
 
-  const { basicExemption, ympe, yampe, cpp1RateSelfEmployed, cpp2RateSelfEmployed, maxCpp1, maxCpp2 } =
-    CRA_2026.cpp
+  const basicExemption = 3_500
+  const ympe = 74_600
+  const yampe = 85_000
 
   const cpp1Base = Math.max(0, Math.min(netSelfEmploymentIncome, ympe) - basicExemption)
-  const cpp1 = Math.min(cpp1Base * cpp1RateSelfEmployed, maxCpp1)
+  const cpp1 = Math.min(cpp1Base * 0.119, 8_460.9)
 
   const cpp2Base = Math.max(0, Math.min(netSelfEmploymentIncome, yampe) - ympe)
-  const cpp2 = Math.min(cpp2Base * cpp2RateSelfEmployed, maxCpp2)
+  const cpp2 = Math.min(cpp2Base * 0.08, 832)
 
-  const total = cpp1 + cpp2
-  return { cpp1, cpp2, total, deductibleEmployerShare: total / 2 }
+  return cpp1 + cpp2
 }
 
-/** Ontario Health Premium — 2026 tiers on taxable income. */
-export function calculateOntarioHealthPremium(taxableIncome: number): number {
-  if (taxableIncome <= 20_000) return 0
-  if (taxableIncome <= 36_000) return 300
-  if (taxableIncome <= 48_000) return 450
-  if (taxableIncome <= 72_000) return 600
-  if (taxableIncome <= 200_000) return 750
-  return 900
-}
-
-export function combinedMarginalRate(taxableIncome: number): number {
-  const federal = marginalRateForBrackets(taxableIncome, CRA_2026.federal.brackets)
-  const ontario = marginalRateForBrackets(taxableIncome, CRA_2026.ontario.brackets)
+function referenceMarginalCombined(netProfit: number): number {
+  if (netProfit <= 0) return 0.1905 // 14% + 5.05% at lowest brackets
+  const federal =
+    netProfit <= 58_523 ? 0.14 : netProfit <= 117_045 ? 0.205 : 0.26
+  const ontario =
+    netProfit <= 53_891 ? 0.0505 : netProfit <= 107_785 ? 0.0915 : 0.1116
   return federal + ontario
 }
 
-function marginalRateForBrackets(income: number, brackets: TaxBracket[]): number {
-  for (const bracket of brackets) {
-    if (income <= bracket.upTo) return bracket.rate
-  }
-  return brackets[brackets.length - 1]?.rate ?? 0
-}
-
 /**
- * Estimate total tax set-aside for an Ontario sole proprietor with only business income.
- * netProfit = gross business income minus tax-deductible expenses (meals at 50%, etc.).
+ * Tax reserve for planning: net profit × tiered rate.
+ * Example: $2,563 profit × 25% = $640.75
  */
 export function calculateOntarioSolePropTax(netProfit: number): TaxBreakdown {
   const safeNet = Math.max(0, netProfit)
-  const cpp = calculateSelfEmployedCpp(safeNet)
-  const taxableIncome = Math.max(0, safeNet - cpp.deductibleEmployerShare)
-
-  const federalBeforeCredits = calculateMarginalTax(taxableIncome, CRA_2026.federal.brackets)
-  const ontarioBeforeCredits = calculateMarginalTax(taxableIncome, CRA_2026.ontario.brackets)
-
-  const federalBpa = federalBasicPersonalAmount(taxableIncome)
-  const federalCredit = federalBpa * CRA_2026.federal.lowestRate
-  const ontarioCredit = CRA_2026.ontario.basicPersonalAmount * CRA_2026.ontario.lowestRate
-
-  const federalIncomeTax = Math.max(0, federalBeforeCredits - federalCredit)
-  const ontarioIncomeTax = Math.max(0, ontarioBeforeCredits - ontarioCredit)
-  const ontarioHealthPremium = calculateOntarioHealthPremium(taxableIncome)
-
-  const incomeTax = federalIncomeTax + ontarioIncomeTax + ontarioHealthPremium
-  const totalTaxReserve = incomeTax + cpp.total
+  const planningRate = getPlanningTaxRate(safeNet)
+  const totalTaxReserve = safeNet * planningRate
 
   return {
     netProfit: safeNet,
-    cpp1: cpp.cpp1,
-    cpp2: cpp.cpp2,
-    cppContributions: cpp.total,
-    cppDeduction: cpp.deductibleEmployerShare,
-    taxableIncome,
-    federalIncomeTax,
-    ontarioIncomeTax,
-    ontarioHealthPremium,
-    incomeTax,
+    planningRate,
+    planningTierLabel: getPlanningTierLabel(safeNet),
     totalTaxReserve,
-    effectiveRate: safeNet > 0 ? totalTaxReserve / safeNet : 0,
-    marginalCombinedRate: combinedMarginalRate(taxableIncome),
+    effectiveRate: planningRate,
+    cppReference: estimateCppReference(safeNet),
+    marginalCombinedReference: referenceMarginalCombined(safeNet),
   }
 }
 
-export function formatEffectiveRate(rate: number): string {
-  return `${(rate * 100).toFixed(1)}%`
+export function getSolePropTaxExplanation(): string {
+  return (
+    'Sole proprietorship profit is taxed as personal income (Revenue − Expenses = Profit). ' +
+    'For planning: set aside net profit × 25% under $60k, × 29% for $60k–$100k, × 30% over $100k. ' +
+    'That reserve covers federal + Ontario income tax and CPP (you pay both employee and employer portions). ' +
+    '2026 reference: federal 14% on first $58,523, Ontario 5.05% on first $53,891 — combined roughly 19%–25% on net profit before CPP. ' +
+    'HST (13%) is separate if you register at $30k revenue. Not tax advice.'
+  )
 }
 
+/** @deprecated use getSolePropTaxExplanation */
 export function getOntarioTaxEngineExplanation(): string {
-  return (
-    'CRA 2026 estimate: federal brackets (14%–33%) plus Ontario brackets (5.05%–13.16%), ' +
-    'basic personal amount credits ($16,452 federal / $12,989 Ontario), CPP at 11.9% up to $74,600 ' +
-    'and 8% on $74,600–$85,000 (Schedule 8), and Ontario Health Premium when taxable income exceeds $20,000. ' +
-    'HST (13%) is separate if you register at $30,000 revenue. Not tax advice — confirm with CRA or an accountant.'
-  )
+  return getSolePropTaxExplanation()
+}
+
+export function formatPlanningRate(rate: number): string {
+  return `${(rate * 100).toFixed(0)}%`
 }
