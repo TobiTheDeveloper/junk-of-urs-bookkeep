@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
-import { Briefcase, Truck, FileSpreadsheet } from 'lucide-react'
-import { GhostButton } from '../components/FormFields'
+import { Briefcase, Truck, FileSpreadsheet, BriefcaseBusiness } from 'lucide-react'
+import { GhostButton, PrimaryButton } from '../components/FormFields'
 import { useCategories, useSettings, useTransactions } from '../hooks/useData'
 import { calculateSummary } from '../lib/calculations'
 import { normalizeCategoryName } from '../lib/dedupe'
-import { exportCategoryBreakdownCsv, exportSummaryCsv } from '../lib/export'
+import { exportCategoryBreakdownCsv, exportSummaryCsv, exportYearEndAccountantPackage } from '../lib/export'
 import { formatCurrency, getMonthLabel } from '../lib/format'
 import { formatDueDate, getQuarterlyReminders } from '../lib/taxReminders'
 
@@ -16,6 +16,7 @@ export function ReportsPage() {
   const now = new Date()
   const [selectedYear, setSelectedYear] = useState(now.getFullYear())
   const [selectedMonth, setSelectedMonth] = useState<number | 'all'>(now.getMonth() + 1)
+  const [exportingPackage, setExportingPackage] = useState(false)
 
   const years = useMemo(() => {
     const set = new Set(transactions.map((t) => new Date(t.date + 'T12:00:00').getFullYear()))
@@ -69,6 +70,17 @@ export function ReportsPage() {
   const maxCategoryAmount = topCategories[0]?.amount ?? 1
 
   const quarterReminders = getQuarterlyReminders(transactions, categories, settings)
+
+  const handleYearEndExport = async () => {
+    setExportingPackage(true)
+    try {
+      await exportYearEndAccountantPackage(selectedYear, transactions, categories, settings)
+    } catch (err) {
+      console.error('Year-end export failed:', err)
+    } finally {
+      setExportingPackage(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -132,6 +144,31 @@ export function ReportsPage() {
           ))}
         </select>
       </div>
+
+      {selectedMonth === 'all' && (
+        <section className="rounded-2xl border border-brand-900/40 bg-brand-950/20 p-4">
+          <div className="flex items-start gap-3">
+            <BriefcaseBusiness size={20} className="text-brand-400 shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <h2 className="text-sm font-semibold text-brand-200">
+                Year-end package for your accountant
+              </h2>
+              <p className="text-xs text-brand-100/70 mt-1 leading-relaxed">
+                One ZIP with {selectedYear} summary, expenses by category, and every transaction
+                line — ready to send to your accountant.
+              </p>
+              <PrimaryButton
+                type="button"
+                disabled={exportingPackage}
+                onClick={handleYearEndExport}
+                className="mt-3 w-full sm:w-auto"
+              >
+                {exportingPackage ? 'Preparing…' : `Download ${selectedYear} accountant package`}
+              </PrimaryButton>
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
         <h2 className="text-sm font-semibold text-slate-300 mb-4">{periodLabel} Summary</h2>

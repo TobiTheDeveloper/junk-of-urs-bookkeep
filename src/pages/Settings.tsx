@@ -12,6 +12,7 @@ import {
   FileDown,
   Receipt,
   ChevronDown,
+  BriefcaseBusiness,
 } from 'lucide-react'
 import {
   FieldLabel,
@@ -37,7 +38,11 @@ import {
 import { db } from '../db/database'
 import { calculateSummary } from '../lib/calculations'
 import { normalizeCategoryName } from '../lib/dedupe'
-import { exportTransactionsCsv } from '../lib/export'
+import {
+  exportTransactionsCsv,
+  exportYearEndAccountantPackage,
+  getAvailableExportYears,
+} from '../lib/export'
 import { formatCurrency } from '../lib/format'
 import {
   analyzeExpensifyCsv,
@@ -60,6 +65,8 @@ export function SettingsPage() {
   const [businessStartDate, setBusinessStartDate] = useState('2026-06-01')
   const [quarterlyRemindersEnabled, setQuarterlyRemindersEnabled] = useState(true)
   const [importMessage, setImportMessage] = useState('')
+  const [exportYear, setExportYear] = useState(new Date().getFullYear())
+  const [exportingPackage, setExportingPackage] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const year = new Date().getFullYear()
@@ -167,6 +174,19 @@ export function SettingsPage() {
   const effectiveTaxRate = ytdSummary?.effectiveTaxRate ?? 0
   const incomeCount = transactions.filter((t) => t.type === 'income').length
   const expenseCount = transactions.filter((t) => t.type === 'expense').length
+  const exportYears = useMemo(() => getAvailableExportYears(transactions), [transactions])
+
+  const handleYearEndExport = async () => {
+    if (!settings) return
+    setExportingPackage(true)
+    try {
+      await exportYearEndAccountantPackage(exportYear, transactions, categories, settings)
+    } catch (err) {
+      console.error('Year-end export failed:', err)
+    } finally {
+      setExportingPackage(false)
+    }
+  }
 
   return (
     <div className="space-y-5 pb-2">
@@ -376,6 +396,39 @@ export function SettingsPage() {
         title="Export & backup"
         description={`${incomeCount} income · ${expenseCount} expenses`}
       >
+        <div className="rounded-xl border border-brand-900/40 bg-brand-950/15 p-3.5 mb-3 space-y-3">
+          <div className="flex items-start gap-3">
+            <BriefcaseBusiness size={18} className="text-brand-400 shrink-0 mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-brand-200">Accountant year-end package</p>
+              <p className="text-[11px] text-brand-100/60 mt-0.5 leading-relaxed">
+                One ZIP: summary, categories, and all transactions for the selected year.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <select
+              value={exportYear}
+              onChange={(e) => setExportYear(Number(e.target.value))}
+              className="flex-1 rounded-xl border border-slate-700 bg-slate-800 px-3 py-2.5 text-sm text-white"
+            >
+              {exportYears.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))}
+            </select>
+            <PrimaryButton
+              type="button"
+              disabled={exportingPackage}
+              onClick={handleYearEndExport}
+              className="shrink-0 px-4"
+            >
+              {exportingPackage ? '…' : 'Download ZIP'}
+            </PrimaryButton>
+          </div>
+        </div>
+
         <div className="grid gap-2 sm:grid-cols-2">
           <SettingsAction
             icon={FileSpreadsheet}
