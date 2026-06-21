@@ -79,6 +79,8 @@ export function SettingsPage() {
     return new Set(categories.map((c) => normalizeCategoryName(c.name))).size
   }, [categories])
 
+  const exportYears = useMemo(() => getAvailableExportYears(transactions), [transactions])
+
   useEffect(() => {
     if (settings) {
       setBusinessName(settings.businessName)
@@ -174,7 +176,6 @@ export function SettingsPage() {
   const effectiveTaxRate = ytdSummary?.effectiveTaxRate ?? 0
   const incomeCount = transactions.filter((t) => t.type === 'income').length
   const expenseCount = transactions.filter((t) => t.type === 'expense').length
-  const exportYears = useMemo(() => getAvailableExportYears(transactions), [transactions])
 
   const handleYearEndExport = async () => {
     if (!settings) return
