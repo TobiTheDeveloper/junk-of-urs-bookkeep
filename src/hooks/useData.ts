@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { db, nowIso } from '../db/database'
 import { assertAuthenticated } from '../lib/authGuard'
 import { buildImportKey, findExistingTransaction, normalizeCategoryName } from '../lib/dedupe'
-import { scheduleSync } from '../lib/sync'
+import { scheduleSync, deleteRemoteTransaction } from '../lib/sync'
 import type { Category, Receipt, Settings, Transaction } from '../types'
 
 export function useTransactions(): Transaction[] {
@@ -55,6 +55,11 @@ export async function deleteTransaction(id: string) {
     await db.receipts.delete(tx.receiptId)
   }
   await db.transactions.delete(id)
+  try {
+    await deleteRemoteTransaction(id)
+  } catch (err) {
+    console.error('Failed to delete transaction from cloud:', err)
+  }
   scheduleSync()
 }
 

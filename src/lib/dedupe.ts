@@ -10,25 +10,59 @@ export function normalizeKeyPart(value: string): string {
   return value.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
+export function normalizeTransactionDate(date: string): string {
+  return date.slice(0, 10)
+}
+
+export function normalizeTransactionAmount(amount: number): number {
+  return Math.round(amount * 100) / 100
+}
+
 export function buildTransactionFingerprint(input: FingerprintInput): string {
-  const amount = input.amount.toFixed(2)
+  const amount = normalizeTransactionAmount(input.amount).toFixed(2)
+  const date = normalizeTransactionDate(input.date)
   if (input.type === 'income') {
     return [
       'income',
-      input.date,
+      date,
       amount,
       input.incomeSource ?? 'none',
       normalizeKeyPart(input.description || input.client || 'payment'),
     ].join(':')
   }
-  return ['expense', input.date, amount, normalizeKeyPart(input.vendor || input.description || 'expense')].join(
-    ':',
-  )
+  return [
+    'expense',
+    date,
+    amount,
+    normalizeKeyPart(input.vendor || input.description || 'expense'),
+  ].join(':')
 }
 
 export function buildImportKey(input: FingerprintInput, explicitKey?: string | null): string {
   if (explicitKey) return explicitKey
   return `fp:${buildTransactionFingerprint(input)}`
+}
+
+function incomeAmountKey(date: string, amount: number): string {
+  return `${normalizeTransactionDate(date)}:${normalizeTransactionAmount(amount).toFixed(2)}`
+}
+
+export function canonicalTransactionGroupKey(
+  input: FingerprintInput & { importKey?: string | null },
+): string {
+  const date = normalizeTransactionDate(input.date)
+  const amount = normalizeTransactionAmount(input.amount).toFixed(2)
+  const importKey = input.importKey ?? null
+
+  if (importKey && !importKey.startsWith('fp:')) {
+    return importKey
+  }
+
+  if (input.type === 'income') {
+    return `income:${date}:${amount}`
+  }
+
+  return buildTransactionFingerprint(input)
 }
 
 export async function findExistingTransaction(
@@ -42,7 +76,17 @@ export async function findExistingTransaction(
 
   const fingerprint = buildTransactionFingerprint(input)
   const all = await db.transactions.toArray()
-  return all.find((t) => buildTransactionFingerprint(t) === fingerprint)
+  const byFingerprint = all.find((t) => buildTransactionFingerprint(t) === fingerprint)
+  if (byFingerprint) return byFingerprint
+
+  if (input.type === 'income') {
+    const key = incomeAmountKey(input.date, input.amount)
+    return all.find(
+      (t) => t.type === 'income' && incomeAmountKey(t.date, t.amount) === key,
+    )
+  }
+
+  return undefined
 }
 
 export async function backfillImportKeys(): Promise<void> {
@@ -96,6 +140,45 @@ export async function removeDuplicateTransactions(): Promise<number> {
     const keep = tx.importKey && !existing.importKey ? tx : existing
     const drop = keep.id === tx.id ? existing : tx
     keepByFingerprint.set(fp, keep)
+    dropIds.add(drop.id)
+    removed++
+  }
+
+  const keepByIncomeAmount = new Map<string, Transaction>()
+  for (const tx of sorted) {
+    if (dropIds.has(tx.id) || tx.type !== 'income') continue
+
+    const key = incomeAmountKey(tx.date, tx.amount)
+    const existing = keepByIncomeAmount.get(key)
+    if (!existing) {
+      keepByIncomeAmount.set(key, tx)
+      continue
+    }
+
+    const keep = tx.importKey && !existing.importKey ? tx : existing
+    const drop = keep.id === tx.id ? existing : tx
+    keepByIncomeAmount.set(key, keep)
+    dropIds.add(drop.id)
+    removed++
+  }
+
+  const keepByCanonical = new Map<string, Transaction>()
+  for (const tx of sorted) {
+    if (dropIds.has(tx.id)) continue
+
+    const key = canonicalTransactionGroupKey(tx)
+    const existing = keepByCanonical.get(key)
+    if (!existing) {
+      keepByCanonical.set(key, tx)
+      continue
+    }
+
+    const keep =
+      tx.importKey && !tx.importKey.startsWith('fp:') && (!existing.importKey || existing.importKey.startsWith('fp:'))
+        ? tx
+        : existing
+    const drop = keep.id === tx.id ? existing : tx
+    keepByCanonical.set(key, keep)
     dropIds.add(drop.id)
     removed++
   }

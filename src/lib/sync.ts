@@ -4,8 +4,10 @@ import { isAuthenticated } from './authGuard'
 import {
   backfillImportKeys,
   buildImportKey,
+  canonicalTransactionGroupKey,
   findExistingTransaction,
   normalizeCategoryName,
+  normalizeTransactionDate,
   removeDuplicateCategories,
   removeDuplicateTransactions,
 } from './dedupe'
@@ -156,7 +158,7 @@ function fromRemoteTransaction(row: Record<string, unknown>): Transaction {
     id: row.id as string,
     type: row.type as Transaction['type'],
     amount: Number(row.amount),
-    date: row.date as string,
+    date: normalizeTransactionDate(String(row.date)),
     description: (row.description as string) ?? '',
     categoryId: (row.category_id as string) ?? null,
     incomeSource: (row.income_source as Transaction['incomeSource']) ?? null,
@@ -234,37 +236,47 @@ async function mergeCategory(incoming: Category): Promise<boolean> {
 
 async function mergeTransaction(incoming: Transaction): Promise<boolean> {
   const importKey = incoming.importKey ?? buildImportKey(incoming)
-  const normalized: Transaction = { ...incoming, importKey }
+  const normalized: Transaction = {
+    ...incoming,
+    date: normalizeTransactionDate(incoming.date),
+    importKey,
+  }
 
-  const existingByFingerprint = await findExistingTransaction(normalized)
-  if (existingByFingerprint && existingByFingerprint.id !== normalized.id) {
-    const duplicateById = await db.transactions.get(normalized.id)
-    if (duplicateById) {
-      if (duplicateById.receiptId) {
-        await db.receipts.delete(duplicateById.receiptId)
+  const existingMatch = await findExistingTransaction(normalized)
+  if (existingMatch) {
+    if (existingMatch.id !== normalized.id) {
+      const duplicateById = await db.transactions.get(normalized.id)
+      if (duplicateById) {
+        if (duplicateById.receiptId) {
+          await db.receipts.delete(duplicateById.receiptId)
+        }
+        await db.transactions.delete(duplicateById.id)
       }
-      await db.transactions.delete(duplicateById.id)
     }
 
-    if (new Date(normalized.updatedAt) >= new Date(existingByFingerprint.updatedAt)) {
-      await db.transactions.update(existingByFingerprint.id, {
+    if (new Date(normalized.updatedAt) >= new Date(existingMatch.updatedAt)) {
+      await db.transactions.update(existingMatch.id, {
         type: normalized.type,
         amount: normalized.amount,
         date: normalized.date,
         description: normalized.description,
         categoryId: normalized.categoryId,
-        incomeSource: normalized.incomeSource,
+        incomeSource: normalized.incomeSource ?? existingMatch.incomeSource,
         vendor: normalized.vendor,
         client: normalized.client,
-        receiptId: normalized.receiptId,
+        receiptId: normalized.receiptId ?? existingMatch.receiptId,
         isTaxDeductible: normalized.isTaxDeductible,
         notes: normalized.notes,
-        importKey: existingByFingerprint.importKey ?? importKey,
+        importKey:
+          existingMatch.importKey && !existingMatch.importKey.startsWith('fp:')
+            ? existingMatch.importKey
+            : importKey.startsWith('fp:')
+              ? existingMatch.importKey ?? importKey
+              : importKey,
         updatedAt: normalized.updatedAt,
       })
-      return true
     }
-    return false
+    return true
   }
 
   const existing = await db.transactions.get(normalized.id)
@@ -276,6 +288,106 @@ async function mergeTransaction(incoming: Transaction): Promise<boolean> {
     return true
   }
   return false
+}
+
+export async function deleteRemoteTransaction(transactionId: string): Promise<void> {
+  if (!isSupabaseConfigured) return
+  const supabase = getSupabase()
+  if (!supabase) return
+
+  const { data: authData } = await supabase.auth.getUser()
+  const userId = authData.user?.id
+  if (!userId) return
+
+  const { error } = await supabase
+    .from('transactions')
+    .delete()
+    .eq('id', transactionId)
+    .eq('user_id', userId)
+  if (error) throw error
+}
+
+async function purgeOrphanedRemoteTransactions(userId: string): Promise<number> {
+  const supabase = getSupabase()
+  if (!supabase) return 0
+
+  const localIds = new Set((await db.transactions.toArray()).map((t) => t.id))
+  const { data: remote, error } = await supabase
+    .from('transactions')
+    .select('id')
+    .eq('user_id', userId)
+
+  if (error) throw error
+
+  const toDelete = (remote ?? [])
+    .map((row) => row.id as string)
+    .filter((id) => !localIds.has(id))
+
+  return deleteRemoteTransactionBatch(userId, toDelete)
+}
+
+async function deleteRemoteTransactionBatch(userId: string, ids: string[]): Promise<number> {
+  const supabase = getSupabase()
+  if (!supabase || ids.length === 0) return 0
+
+  for (let i = 0; i < ids.length; i += 50) {
+    const batch = ids.slice(i, i + 50)
+    const { error: deleteError } = await supabase
+      .from('transactions')
+      .delete()
+      .in('id', batch)
+      .eq('user_id', userId)
+    if (deleteError) throw deleteError
+  }
+
+  return ids.length
+}
+
+export async function reconcileRemoteDuplicates(userId: string): Promise<number> {
+  const supabase = getSupabase()
+  if (!supabase) return 0
+
+  const { data: remote, error } = await supabase
+    .from('transactions')
+    .select('*')
+    .eq('user_id', userId)
+
+  if (error) throw error
+  if (!remote?.length) return 0
+
+  const groups = new Map<string, Record<string, unknown>[]>()
+  for (const row of remote) {
+    const tx = fromRemoteTransaction(row)
+    const key = canonicalTransactionGroupKey(tx)
+    const group = groups.get(key) ?? []
+    group.push(row)
+    groups.set(key, group)
+  }
+
+  const toDelete: string[] = []
+  for (const group of groups.values()) {
+    if (group.length <= 1) continue
+
+    group.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+
+    const keep =
+      group.find((row) => {
+        const key = row.import_key as string | null
+        return key && !key.startsWith('fp:')
+      }) ?? group[0]
+
+    for (const row of group) {
+      if (row.id !== keep.id) {
+        toDelete.push(row.id as string)
+      }
+    }
+  }
+
+  return deleteRemoteTransactionBatch(userId, toDelete)
+}
+
+export async function purgeCloudDuplicates(userId: string): Promise<number> {
+  return purgeOrphanedRemoteTransactions(userId)
 }
 
 export async function syncToCloud(): Promise<SyncResult> {
@@ -295,6 +407,11 @@ export async function syncToCloud(): Promise<SyncResult> {
   let pulled = 0
 
   try {
+    await reconcileRemoteDuplicates(userId)
+    await backfillImportKeys()
+    await removeDuplicateCategories()
+    await removeDuplicateTransactions()
+
     const [localCategories, localTransactions, localReceipts, localSettings] = await Promise.all([
       db.categories.toArray(),
       db.transactions.toArray(),
@@ -405,6 +522,8 @@ export async function syncToCloud(): Promise<SyncResult> {
     await backfillImportKeys()
     await removeDuplicateCategories()
     await removeDuplicateTransactions()
+    await reconcileRemoteDuplicates(userId)
+    await purgeOrphanedRemoteTransactions(userId)
 
     return { ok: true, message: 'Sync complete', pushed, pulled }
   } catch (err) {
@@ -440,7 +559,9 @@ export async function pullFromCloud(userId: string): Promise<SyncResult> {
       }
       if (transactions?.length) {
         await db.transactions.clear()
-        await db.transactions.bulkAdd(transactions.map((r) => fromRemoteTransaction(r)))
+        for (const row of transactions) {
+          await mergeTransaction(fromRemoteTransaction(row))
+        }
         pulled += transactions.length
       }
       if (receipts?.length) {
