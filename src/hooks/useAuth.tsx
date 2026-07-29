@@ -13,10 +13,14 @@ interface AuthContextValue {
   loading: boolean
   dataReady: boolean
   sessionError: string | null
+  passwordRecovery: boolean
   syncStatus: SyncStatus
   syncMessage: string
   signIn: (email: string, password: string) => Promise<string | null>
   signUp: (email: string, password: string) => Promise<string | null>
+  resetPassword: (email: string) => Promise<string | null>
+  updatePassword: (password: string) => Promise<string | null>
+  clearPasswordRecovery: () => void
   signOut: () => Promise<void>
   syncNow: () => Promise<SyncResult>
 }
@@ -29,6 +33,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(isSupabaseConfigured)
   const [dataReady, setDataReady] = useState(!isSupabaseConfigured)
   const [sessionError, setSessionError] = useState<string | null>(null)
+  const [passwordRecovery, setPasswordRecovery] = useState(false)
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle')
   const [syncMessage, setSyncMessage] = useState('')
 
@@ -46,7 +51,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(false)
     })
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: sub } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setPasswordRecovery(true)
+      }
       setSession(nextSession)
       setUser(nextSession?.user ?? null)
     })
@@ -60,8 +68,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!user) {
       setAuthenticatedUserId(null)
       setSessionError(null)
+      setPasswordRecovery(false)
       setDataReady(true)
       clearSessionData().catch(console.error)
+      return
+    }
+
+    if (passwordRecovery) {
+      setAuthenticatedUserId(user.id)
+      setDataReady(true)
       return
     }
 
@@ -87,7 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true
     }
-  }, [user, loading])
+  }, [user, loading, passwordRecovery])
 
   const signIn = async (email: string, password: string) => {
     const supabase = getSupabase()
@@ -103,10 +118,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return error?.message ?? null
   }
 
+  const resetPassword = async (email: string) => {
+    const supabase = getSupabase()
+    if (!supabase) return 'Supabase is not configured'
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/`,
+    })
+    return error?.message ?? null
+  }
+
+  const updatePassword = async (password: string) => {
+    const supabase = getSupabase()
+    if (!supabase) return 'Supabase is not configured'
+    const { error } = await supabase.auth.updateUser({ password })
+    if (error) return error.message
+    setPasswordRecovery(false)
+    return null
+  }
+
+  const clearPasswordRecovery = () => setPasswordRecovery(false)
+
   const signOut = async () => {
     const supabase = getSupabase()
     if (!supabase) return
     setAuthenticatedUserId(null)
+    setPasswordRecovery(false)
     await supabase.auth.signOut()
   }
 
@@ -129,10 +165,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         loading,
         dataReady,
         sessionError,
+        passwordRecovery,
         syncStatus,
         syncMessage,
         signIn,
         signUp,
+        resetPassword,
+        updatePassword,
+        clearPasswordRecovery,
         signOut,
         syncNow,
       }}

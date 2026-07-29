@@ -21,7 +21,7 @@ function LoadingScreen({ message = 'Loading…' }: { message?: string }) {
 }
 
 function AppShell() {
-  const { configured, user, loading, dataReady, sessionError } = useAuth()
+  const { configured, user, loading, dataReady, sessionError, passwordRecovery } = useAuth()
   const [tab, setTab] = useState<TabId>('dashboard')
 
   if (loading) {
@@ -32,7 +32,7 @@ function AppShell() {
     return <ConfigureSupabaseGate />
   }
 
-  if (!user) {
+  if (!user || passwordRecovery) {
     return <LoginGate />
   }
 
