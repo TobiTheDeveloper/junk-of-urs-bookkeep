@@ -126,6 +126,11 @@ function toRemoteReceipt(receipt: Receipt, userId: string, storagePath: string |
   }
 }
 
+function normalizeCurrency(value: unknown): string {
+  if (!value || value === 'USD') return 'CAD'
+  return String(value)
+}
+
 function toRemoteSettings(settings: Settings, userId: string) {
   return {
     user_id: userId,
@@ -133,11 +138,15 @@ function toRemoteSettings(settings: Settings, userId: string) {
     income_tax_rate: settings.incomeTaxRate,
     self_employment_rate: settings.selfEmploymentRate,
     fiscal_year_start: settings.fiscalYearStart,
-    currency: settings.currency,
+    currency: normalizeCurrency(settings.currency),
     quarterly_reminders_enabled: settings.quarterlyRemindersEnabled,
     dismissed_reminder_key: settings.dismissedReminderKey,
     last_synced_at: nowIso(),
     updated_at: settings.updatedAt,
+    business_start_date: settings.businessStartDate,
+    hst_registered: settings.hstRegistered ?? false,
+    amounts_include_hst: settings.amountsIncludeHst ?? false,
+    other_annual_income: settings.otherAnnualIncome ?? 0,
   }
 }
 
@@ -190,18 +199,24 @@ function fromRemoteReceipt(row: Record<string, unknown>, imageData = ''): Receip
 }
 
 function fromRemoteSettings(row: Record<string, unknown>): Partial<Settings> {
-  return {
+  const next: Partial<Settings> = {
     businessName: row.business_name as string,
-    incomeTaxRate: Number(row.income_tax_rate),
-    selfEmploymentRate: Number(row.self_employment_rate),
-    fiscalYearStart: Number(row.fiscal_year_start),
-    currency: row.currency as string,
+    incomeTaxRate: Number(row.income_tax_rate) || 0,
+    selfEmploymentRate: Number(row.self_employment_rate) || 0,
+    fiscalYearStart: Number(row.fiscal_year_start) || 1,
+    currency: normalizeCurrency(row.currency),
     quarterlyRemindersEnabled: row.quarterly_reminders_enabled as boolean,
     dismissedReminderKey: (row.dismissed_reminder_key as string) ?? null,
     lastSyncedAt: (row.last_synced_at as string) ?? null,
-    businessStartDate: '2026-06-01',
     updatedAt: row.updated_at as string,
   }
+  if ('business_start_date' in row && row.business_start_date) {
+    next.businessStartDate = row.business_start_date as string
+  }
+  if ('hst_registered' in row) next.hstRegistered = Boolean(row.hst_registered)
+  if ('amounts_include_hst' in row) next.amountsIncludeHst = Boolean(row.amounts_include_hst)
+  if ('other_annual_income' in row) next.otherAnnualIncome = Number(row.other_annual_income) || 0
+  return next
 }
 
 async function mergeCategory(incoming: Category): Promise<boolean> {
@@ -457,9 +472,22 @@ export async function syncToCloud(): Promise<SyncResult> {
     }
 
     if (localSettings) {
-      const { error } = await supabase
-        .from('user_settings')
-        .upsert(toRemoteSettings(localSettings, userId))
+      const remote = toRemoteSettings(localSettings, userId)
+      let { error } = await supabase.from('user_settings').upsert(remote)
+      if (error && /column|schema cache|does not exist/i.test(error.message)) {
+        const {
+          business_start_date: _d,
+          hst_registered: _h,
+          amounts_include_hst: _a,
+          other_annual_income: _o,
+          ...legacy
+        } = remote
+        void _d
+        void _h
+        void _a
+        void _o
+        ;({ error } = await supabase.from('user_settings').upsert(legacy))
+      }
       if (error) throw error
       pushed++
     }

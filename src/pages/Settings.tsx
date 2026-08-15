@@ -43,7 +43,7 @@ import {
   exportYearEndAccountantPackage,
   getAvailableExportYears,
 } from '../lib/export'
-import { formatCurrency } from '../lib/format'
+import { displayCurrency } from '../lib/format'
 import {
   analyzeExpensifyCsv,
   importExpensifyCsv,
@@ -51,6 +51,7 @@ import {
 } from '../lib/seedBusinessData'
 import { summarizeImportResult } from '../lib/expensifyImport'
 import { getOntarioTaxExplanation } from '../lib/taxReminders'
+import { TaxBreakdownPanel } from '../components/TaxBreakdownPanel'
 
 export function SettingsPage() {
   const settings = useSettings()
@@ -64,6 +65,9 @@ export function SettingsPage() {
   const [businessName, setBusinessName] = useState('')
   const [businessStartDate, setBusinessStartDate] = useState('2026-06-01')
   const [quarterlyRemindersEnabled, setQuarterlyRemindersEnabled] = useState(true)
+  const [hstRegistered, setHstRegistered] = useState(false)
+  const [amountsIncludeHst, setAmountsIncludeHst] = useState(false)
+  const [otherAnnualIncome, setOtherAnnualIncome] = useState('0')
   const [importMessage, setImportMessage] = useState('')
   const [exportYear, setExportYear] = useState(new Date().getFullYear())
   const [exportingPackage, setExportingPackage] = useState(false)
@@ -86,6 +90,9 @@ export function SettingsPage() {
       setBusinessName(settings.businessName)
       setBusinessStartDate(settings.businessStartDate ?? '2026-06-01')
       setQuarterlyRemindersEnabled(settings.quarterlyRemindersEnabled)
+      setHstRegistered(settings.hstRegistered ?? false)
+      setAmountsIncludeHst(settings.amountsIncludeHst ?? false)
+      setOtherAnnualIncome(String(settings.otherAnnualIncome ?? 0))
     }
   }, [settings])
 
@@ -96,6 +103,10 @@ export function SettingsPage() {
       businessStartDate,
       quarterlyRemindersEnabled,
       dismissedReminderKey: quarterlyRemindersEnabled ? settings?.dismissedReminderKey ?? null : null,
+      hstRegistered,
+      amountsIncludeHst: hstRegistered ? amountsIncludeHst : false,
+      otherAnnualIncome: Math.max(0, parseFloat(otherAnnualIncome) || 0),
+      currency: 'CAD',
     })
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
@@ -172,7 +183,7 @@ export function SettingsPage() {
     )
   }
 
-  const currency = settings.currency ?? 'CAD'
+  const currency = displayCurrency(settings.currency)
   const effectiveTaxRate = ytdSummary?.effectiveTaxRate ?? 0
   const incomeCount = transactions.filter((t) => t.type === 'income').length
   const expenseCount = transactions.filter((t) => t.type === 'expense').length
@@ -195,14 +206,14 @@ export function SettingsPage() {
         <div>
           <p className="text-xs font-medium uppercase tracking-wider text-brand-400">Settings</p>
           <h1 className="text-2xl font-bold text-white mt-1">{businessName || 'Junk Of Urs'}</h1>
-          <p className="text-sm text-slate-400 mt-1">Ontario sole proprietorship · {settings.currency}</p>
+          <p className="text-sm text-slate-400 mt-1">Ontario sole proprietorship · CAD</p>
         </div>
 
         <div className="grid grid-cols-3 gap-2">
           <SettingsStatPill label="Transactions" value={String(transactions.length)} />
           <SettingsStatPill
             label="Tax reserve"
-            value={`${effectiveTaxRate.toFixed(0)}%`}
+            value={`${effectiveTaxRate.toFixed(1)}%`}
             tone="amber"
           />
           <SettingsStatPill label="Storage" value="Cloud + local" tone="brand" />
@@ -214,7 +225,7 @@ export function SettingsPage() {
       <SettingsSection
         icon={Building2}
         title="Business & tax"
-        description="Profile, Ontario rates, and CRA instalment reminders"
+        description="Profile, HST, other income, and CRA instalment reminders"
       >
         <form onSubmit={handleSaveSettings} className="space-y-4">
           <div className="space-y-3">
@@ -237,36 +248,48 @@ export function SettingsPage() {
 
           <div className="rounded-xl border border-slate-800 bg-slate-950/40 p-3 space-y-2">
             <p className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-              Tax reserve · sole proprietorship planning
+              {year} Ontario tax estimate
             </p>
             {ytdSummary && (
-              <>
-                <TaxEstimateRow
-                  label="Net profit (YTD)"
-                  value={formatCurrency(ytdSummary.netProfit, currency)}
-                />
-                <TaxEstimateRow
-                  label="Planning rate"
-                  value={`${(ytdSummary.taxBreakdown.planningRate * 100).toFixed(0)}%`}
-                />
-                <TaxEstimateRow
-                  label="CPP reference (in rate)"
-                  value={formatCurrency(ytdSummary.taxBreakdown.cppReference, currency)}
-                />
-                <div className="flex items-center justify-between rounded-lg bg-amber-950/40 border border-amber-900/30 px-3 py-2 mt-2">
-                  <span className="text-xs text-amber-200/80">
-                    Net profit × {(ytdSummary.taxBreakdown.planningRate * 100).toFixed(0)}%
-                  </span>
-                  <span className="text-sm font-bold text-amber-300 tabular-nums">
-                    {formatCurrency(ytdSummary.taxReserve, currency)}
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-500 pt-1">
-                  {ytdSummary.taxBreakdown.planningTierLabel}
-                </p>
-              </>
+              <TaxBreakdownPanel
+                tax={ytdSummary.taxBreakdown}
+                hst={ytdSummary.hst}
+                currency={currency}
+              />
             )}
           </div>
+
+          <div>
+            <FieldLabel>Other T4 / employment income this year</FieldLabel>
+            <TextInput
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              min="0"
+              value={otherAnnualIncome}
+              onChange={(e) => setOtherAnnualIncome(e.target.value)}
+            />
+            <p className="text-[11px] text-slate-500 mt-1.5">
+              Leave $0 if this business is your only income. If you also have a job, enter wages so
+              tax brackets and CPP room are right.
+            </p>
+          </div>
+
+          <SettingsToggle
+            checked={hstRegistered}
+            onChange={setHstRegistered}
+            label="HST registered"
+            description="Ontario 13% — usually required after $30,000 in taxable sales"
+          />
+
+          {hstRegistered && (
+            <SettingsToggle
+              checked={amountsIncludeHst}
+              onChange={setAmountsIncludeHst}
+              label="Amounts I enter already include HST"
+              description="Turn off if you record prices before tax"
+            />
+          )}
 
           <SettingsToggle
             checked={quarterlyRemindersEnabled}
@@ -490,15 +513,6 @@ export function SettingsPage() {
       <p className="text-center text-[11px] text-slate-600 pt-1">
         Junk Of Urs Bookkeeper · Sign in required
       </p>
-    </div>
-  )
-}
-
-function TaxEstimateRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between text-xs">
-      <span className="text-slate-400">{label}</span>
-      <span className="font-semibold text-slate-200 tabular-nums">{value}</span>
     </div>
   )
 }

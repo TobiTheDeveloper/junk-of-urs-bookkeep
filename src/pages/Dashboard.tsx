@@ -6,9 +6,10 @@ import {
   Truck,
 } from 'lucide-react'
 import { AmountRow } from '../components/AmountRow'
+import { TaxBreakdownPanel } from '../components/TaxBreakdownPanel'
 import { MonthlySummaryHero } from '../components/MonthlySummaryHero'
 import { TaxReminderBanner } from '../components/TaxReminderBanner'
-import { formatCurrency, formatShortDate } from '../lib/format'
+import { formatCurrency, formatShortDate, displayCurrency } from '../lib/format'
 import { calculateSummary } from '../lib/calculations'
 import {
   getActiveQuarterlyReminder,
@@ -59,7 +60,7 @@ export function Dashboard() {
   }, [activeReminder, settings])
 
   const recent = transactions.slice(0, 5)
-  const currency = settings?.currency ?? 'USD'
+  const currency = displayCurrency(settings?.currency)
   const notificationsSupported = 'Notification' in window
 
   if (!settings || !summary || !yearSummary) {
@@ -77,7 +78,7 @@ export function Dashboard() {
       <header>
         <p className="text-sm text-brand-400 font-medium">{settings.businessName}</p>
         <h1 className="text-2xl font-bold text-white mt-0.5">{monthName} Overview</h1>
-        <p className="text-sm text-slate-400 mt-1">Solo proprietorship · {year}</p>
+        <p className="text-sm text-slate-400 mt-1">Ontario sole proprietorship · {year}</p>
       </header>
 
       {activeReminder && (
@@ -103,6 +104,7 @@ export function Dashboard() {
         taxReserve={summary.taxReserve}
         takeHome={summary.takeHome}
         taxRatePercent={summary.effectiveTaxRate}
+        hstSetAside={summary.hstSetAside}
       />
 
       <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
@@ -130,27 +132,33 @@ export function Dashboard() {
       </section>
 
       <section className="rounded-2xl border border-amber-900/40 bg-amber-950/20 p-4">
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-3 mb-3">
           <PiggyBank size={20} className="text-amber-400 shrink-0 mt-0.5" />
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold text-amber-200">Tax Reserve Reminder</h2>
+            <h2 className="text-sm font-semibold text-amber-200">
+              {year} tax so far — Ontario estimate
+            </h2>
             <p className="text-sm text-amber-100/70 mt-1">
-              As a solo proprietorship, set aside{' '}
-              <strong className="text-amber-200 tabular-nums">
-                {formatCurrency(yearSummary.taxReserve, currency)}
-              </strong>{' '}
-              for taxes on your {year} net profit of{' '}
-              <span className="tabular-nums">{formatCurrency(yearSummary.netProfit, currency)}</span>.
-              Adjust rates in Settings.
+              Calculated from your books using 2026 federal + Ontario brackets, CPP, and the
+              Ontario Health Premium. This is a planning estimate, not a filed return.
             </p>
           </div>
         </div>
+        <TaxBreakdownPanel
+          tax={yearSummary.taxBreakdown}
+          hst={yearSummary.hst}
+          currency={currency}
+        />
       </section>
 
       <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
         <h2 className="text-sm font-semibold text-slate-300 mb-3">
-          Estimated Quarterly Payments ({year})
+          Estimated CRA instalments ({year})
         </h2>
+        <p className="text-[11px] text-slate-500 mb-3">
+          Equal quarters of this year’s estimated income tax + CPP. First-year businesses often
+          don’t owe instalments until the following year.
+        </p>
         <div className="space-y-2">
           {allQuarterReminders.map((q) => (
             <AmountRow
@@ -214,7 +222,7 @@ export function Dashboard() {
             </p>
           </div>
           <div className="flex items-center justify-between rounded-xl border border-slate-800/80 bg-slate-950/40 px-3 py-2.5 sm:block sm:border-0 sm:bg-transparent sm:p-0 sm:text-center">
-            <p className="text-xs text-slate-500 sm:mb-1">Tax Reserve</p>
+            <p className="text-xs text-slate-500 sm:mb-1">Tax + CPP to set aside</p>
             <p className="text-lg font-bold text-amber-400 tabular-nums sm:text-sm">
               {formatCurrency(yearSummary.taxReserve, currency)}
             </p>

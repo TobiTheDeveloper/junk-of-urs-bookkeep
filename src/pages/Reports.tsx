@@ -5,8 +5,9 @@ import { useCategories, useSettings, useTransactions } from '../hooks/useData'
 import { calculateSummary } from '../lib/calculations'
 import { normalizeCategoryName } from '../lib/dedupe'
 import { exportCategoryBreakdownCsv, exportSummaryCsv, exportYearEndAccountantPackage } from '../lib/export'
-import { formatCurrency, getMonthLabel } from '../lib/format'
+import { formatCurrency, getMonthLabel, displayCurrency } from '../lib/format'
 import { formatDueDate, getQuarterlyReminders } from '../lib/taxReminders'
+import { TaxBreakdownPanel } from '../components/TaxBreakdownPanel'
 
 export function ReportsPage() {
   const transactions = useTransactions()
@@ -30,7 +31,7 @@ export function ReportsPage() {
     return calculateSummary(transactions, categories, settings, selectedYear, month)
   }, [transactions, categories, settings, selectedYear, selectedMonth])
 
-  const currency = settings?.currency ?? 'USD'
+  const currency = displayCurrency(settings?.currency)
 
   if (!settings || !summary) {
     return (
@@ -87,7 +88,9 @@ export function ReportsPage() {
       <header className="flex items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-white">Reports</h1>
-          <p className="text-sm text-slate-400 mt-0.5">Profit, taxes, and spending breakdown</p>
+          <p className="text-sm text-slate-400 mt-0.5">
+            Profit, Ontario tax estimate, and spending
+          </p>
         </div>
         <div className="flex flex-col gap-2 shrink-0">
           <GhostButton
@@ -173,36 +176,48 @@ export function ReportsPage() {
       <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
         <h2 className="text-sm font-semibold text-slate-300 mb-4">{periodLabel} Summary</h2>
         <div className="space-y-3">
-          <Row label="Gross Income" value={summary.grossIncome} currency={currency} positive />
-          <Row label="Total Expenses" value={summary.totalExpenses} currency={currency} negative />
+          <Row label="Income (for tax)" value={summary.grossIncome} currency={currency} positive />
+          <Row label="Expenses (for tax)" value={summary.totalExpenses} currency={currency} negative />
           <Row
-            label="Deductible Expenses"
+            label="Deductible expenses"
             value={summary.deductibleExpenses}
             currency={currency}
             muted
           />
           <div className="border-t border-slate-800 pt-3">
-            <Row label="Net Profit (taxable)" value={summary.netProfit} currency={currency} bold />
+            <Row label="Net profit" value={summary.netProfit} currency={currency} bold />
           </div>
-          <Row
-            label={`Tax Reserve (${summary.effectiveTaxRate.toFixed(0)}% of net profit)`}
-            value={summary.taxReserve}
-            currency={currency}
-            accent="amber"
-          />
-          <p className="text-[11px] text-slate-500 -mt-1">
-            {summary.taxBreakdown.planningTierLabel}
-          </p>
-          <Row
-            label="CPP reference (included in rate)"
-            value={summary.taxBreakdown.cppReference}
-            currency={currency}
-            muted
-          />
+          {selectedMonth !== 'all' && (
+            <>
+              <Row
+                label="Tax + CPP to set aside this month"
+                value={summary.taxReserve}
+                currency={currency}
+                accent="amber"
+              />
+              <p className="text-[11px] text-slate-500">
+                Income tax is calculated on the whole year, not this month alone. The amount above is
+                how much extra tax this period added.
+              </p>
+            </>
+          )}
           <div className="border-t border-slate-800 pt-3">
-            <Row label="Estimated Take-Home" value={summary.takeHome} currency={currency} bold accent="sky" />
+            <Row
+              label="Estimated take-home"
+              value={summary.takeHome}
+              currency={currency}
+              bold
+              accent="sky"
+            />
           </div>
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-amber-900/40 bg-amber-950/20 p-4">
+        <h2 className="text-sm font-semibold text-amber-200 mb-3">
+          {selectedMonth === 'all' ? `${selectedYear} Ontario tax estimate` : `${selectedYear} tax so far`}
+        </h2>
+        <TaxBreakdownPanel tax={summary.taxBreakdown} hst={summary.hst} currency={currency} />
       </section>
 
       <section className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">

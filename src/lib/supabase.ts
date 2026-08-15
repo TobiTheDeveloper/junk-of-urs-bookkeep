@@ -73,6 +73,10 @@ export type Database = {
           dismissed_reminder_key: string | null
           last_synced_at: string | null
           updated_at: string
+          business_start_date: string | null
+          hst_registered: boolean
+          amounts_include_hst: boolean
+          other_annual_income: number
         }
       }
     }

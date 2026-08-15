@@ -23,7 +23,7 @@ export const DEFAULT_SETTINGS: Settings = {
   id: 'main',
   businessName: 'Junk Of Urs',
   businessStartDate: '2026-06-01',
-  incomeTaxRate: 25,
+  incomeTaxRate: 0,
   selfEmploymentRate: 0,
   fiscalYearStart: 1,
   currency: 'CAD',
@@ -31,6 +31,9 @@ export const DEFAULT_SETTINGS: Settings = {
   dismissedReminderKey: null,
   lastSyncedAt: null,
   updatedAt: new Date().toISOString(),
+  hstRegistered: false,
+  amountsIncludeHst: false,
+  otherAnnualIncome: 0,
 }
 
 class BookkeepDB extends Dexie {
@@ -116,6 +119,23 @@ class BookkeepDB extends Dexie {
         }
       }
     })
+    this.version(4).stores({
+      transactions:
+        'id, type, date, categoryId, incomeSource, receiptId, importKey, createdAt, updatedAt',
+      categories: 'id, name, isDefault, updatedAt',
+      receipts: 'id, transactionId, createdAt, updatedAt',
+      settings: 'id, updatedAt',
+    }).upgrade(async (tx) => {
+      const settings = await tx.table('settings').get('main')
+      if (settings) {
+        await tx.table('settings').update('main', {
+          currency: settings.currency === 'USD' ? 'CAD' : (settings.currency ?? 'CAD'),
+          hstRegistered: settings.hstRegistered ?? false,
+          amountsIncludeHst: settings.amountsIncludeHst ?? false,
+          otherAnnualIncome: settings.otherAnnualIncome ?? 0,
+        })
+      }
+    })
   }
 }
 
@@ -157,10 +177,13 @@ export async function seedDatabase() {
   const settings = await db.settings.get('main')
   if (!settings) {
     await db.settings.add(DEFAULT_SETTINGS)
-  } else if (!settings.businessStartDate) {
+  } else {
     await db.settings.update('main', {
-      businessStartDate: '2026-06-01',
-      currency: settings.currency || 'CAD',
+      businessStartDate: settings.businessStartDate || '2026-06-01',
+      currency: settings.currency === 'USD' || !settings.currency ? 'CAD' : settings.currency,
+      hstRegistered: settings.hstRegistered ?? false,
+      amountsIncludeHst: settings.amountsIncludeHst ?? false,
+      otherAnnualIncome: settings.otherAnnualIncome ?? 0,
     })
   }
 }

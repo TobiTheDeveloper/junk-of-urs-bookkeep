@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Receipt, Search } from 'lucide-react'
 import { EmptyState, TextInput } from '../components/FormFields'
 import { useCategories, useReceipts, useSettings, useTransactions } from '../hooks/useData'
-import { formatCurrency, formatDate } from '../lib/format'
+import { displayCurrency, formatCurrency, formatDate } from '../lib/format'
 
 export function ReceiptsPage() {
   const receipts = useReceipts()
@@ -12,7 +12,7 @@ export function ReceiptsPage() {
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
-  const currency = settings?.currency ?? 'USD'
+  const currency = displayCurrency(settings?.currency)
 
   const receiptItems = useMemo(() => {
     return receipts

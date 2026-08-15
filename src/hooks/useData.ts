@@ -44,7 +44,16 @@ export async function addTransaction(
 
 export async function updateTransaction(id: string, updates: Partial<Transaction>) {
   assertAuthenticated()
-  await db.transactions.update(id, { ...updates, updatedAt: nowIso() })
+  const existing = await db.transactions.get(id)
+  if (!existing) return
+
+  const merged = { ...existing, ...updates }
+  const importKey =
+    existing.importKey && !existing.importKey.startsWith('fp:')
+      ? existing.importKey
+      : buildImportKey(merged)
+
+  await db.transactions.update(id, { ...updates, importKey, updatedAt: nowIso() })
   scheduleSync()
 }
 

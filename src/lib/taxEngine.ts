@@ -1,123 +1,386 @@
 /**
- * Ontario sole proprietorship — tax reserve for planning.
+ * Ontario sole proprietorship tax estimate — 2026 tax year.
  *
- * A sole prop has no separate business tax rate: profit is personal income.
- * Reserve = net profit × planning rate (covers income tax + CPP set-aside).
+ * Assumes:
+ *   - Ontario resident
+ *   - Calendar year
+ *   - This business (+ optional T4 entered in Settings) is the income being taxed
+ *   - Only the basic personal amount (no spouse, dependents, RRSP, tuition, etc.)
  *
- * 2026 reference brackets (not used for reserve math):
- *   Federal: 14% to $58,523, 20.5% to $117,045
- *   Ontario: 5.05% to $53,891, 9.15% to $107,785
- *   Combined marginal ≈ 19%–25% on net profit, plus CPP (both portions).
+ * Figures confirmed to CRA / Ontario 2026:
+ *   Federal brackets & 14% lowest rate, BPA $16,452
+ *   Ontario brackets, BPA $12,989, surtax $5,818 / $7,446
+ *   CPP YMPE $74,600, YAMPE $85,000, self-employed 11.9% + CPP2 8%
+ *   Ontario HST 13%, small-supplier threshold $30,000
+ *
+ * This is a planning estimate, not tax advice or a filed T1.
  */
 
+import { roundCents } from './money'
+
+export const TAX_YEAR = 2026
+
+export const FEDERAL_BRACKETS_2026 = [
+  { upTo: 58_523, rate: 0.14 },
+  { upTo: 117_045, rate: 0.205 },
+  { upTo: 181_440, rate: 0.26 },
+  { upTo: 258_482, rate: 0.29 },
+  { upTo: Infinity, rate: 0.33 },
+] as const
+
+export const ONTARIO_BRACKETS_2026 = [
+  { upTo: 53_891, rate: 0.0505 },
+  { upTo: 107_785, rate: 0.0915 },
+  { upTo: 150_000, rate: 0.1116 },
+  { upTo: 220_000, rate: 0.1216 },
+  { upTo: Infinity, rate: 0.1316 },
+] as const
+
+export const FEDERAL_BPA = {
+  max: 16_452,
+  min: 14_829,
+  phaseOutStart: 181_440,
+  phaseOutEnd: 258_482,
+  creditRate: 0.14,
+} as const
+
+export const ONTARIO_BPA = {
+  amount: 12_989,
+  creditRate: 0.0505,
+} as const
+
+export const ONTARIO_SURTAX = {
+  firstThreshold: 5_818,
+  firstRate: 0.2,
+  secondThreshold: 7_446,
+  secondRate: 0.36,
+} as const
+
+/** ON428 low-income tax reduction basic amount (2026, indexed). */
+export const ONTARIO_TAX_REDUCTION_BASIC = 300
+
+export const CPP_2026 = {
+  basicExemption: 3_500,
+  ympe: 74_600,
+  yampe: 85_000,
+  selfEmployedRate: 0.119,
+  selfEmployedMax: 8_460.9,
+  /** Original (base) CPP — half is a non-refundable credit, half is deductible. */
+  baseRate: 0.099,
+  employeeBaseRate: 0.0495,
+  /** First additional CPP (enhancement) — fully deductible for the self-employed. */
+  firstAdditionalRate: 0.02,
+  cpp2Rate: 0.08,
+  cpp2Max: 832,
+} as const
+
+export const ONTARIO_HST_RATE = 0.13
+export const HST_SMALL_SUPPLIER_THRESHOLD = 30_000
+
+export interface CppBreakdown {
+  cpp1: number
+  cpp2: number
+  total: number
+  deductible: number
+  creditBase: number
+}
+
 export interface TaxBreakdown {
+  /** Net business profit before the CPP deduction. */
   netProfit: number
-  /** Planning rate applied to net profit (0.25, 0.29, or 0.30) */
+  /** Other T4 / employment income entered in Settings. */
+  otherIncome: number
+  /** Line 26000-style taxable income after the CPP deduction. */
+  taxableIncome: number
+  cpp: CppBreakdown
+  federalTax: number
+  ontarioTaxBeforeSurtax: number
+  ontarioSurtax: number
+  ontarioTax: number
+  ontarioHealthPremium: number
+  /** Federal + Ontario (incl. surtax) + health premium — not CPP. */
+  incomeTax: number
+  /** Income tax + self-employed CPP — the amount to set aside. */
+  totalTaxReserve: number
+  /** totalTaxReserve / netProfit (0 if no profit). */
+  effectiveRate: number
+  /** Combined federal + Ontario marginal rate on the next dollar of profit (incl. surtax, excl. CPP). */
+  marginalCombinedRate: number
+  /** @deprecated alias of effectiveRate — kept so older UI does not crash */
   planningRate: number
   planningTierLabel: string
-  totalTaxReserve: number
-  effectiveRate: number
-  /** Estimated CPP (Schedule 8) — for reference; included in planning rate, not added on top */
+  /** @deprecated alias of cpp.total */
   cppReference: number
-  /** Combined federal + Ontario marginal at this profit — reference only */
+  /** @deprecated alias of marginalCombinedRate */
   marginalCombinedReference: number
 }
 
-export const PLANNING_THRESHOLDS = {
-  mid: 60_000,
-  high: 100_000,
-} as const
-
-export const PLANNING_RATES = {
-  /** Under $60k net profit */
-  standard: 0.25,
-  /** $60k–$100k net profit */
-  mid: 0.29,
-  /** Over $100k net profit */
-  high: 0.3,
-} as const
-
-/** CRA 2026 marginal brackets — reference display only */
-export const REFERENCE_BRACKETS_2026 = {
-  federal: [
-    { upTo: 58_523, rate: 0.14, label: '14% on first $58,523' },
-    { upTo: 117_045, rate: 0.205, label: '20.5% up to $117,045' },
-  ],
-  ontario: [
-    { upTo: 53_891, rate: 0.0505, label: '5.05% on first $53,891' },
-    { upTo: 107_785, rate: 0.0915, label: '9.15% on next bracket' },
-  ],
-} as const
-
-export function getPlanningTaxRate(netProfit: number): number {
-  if (netProfit < PLANNING_THRESHOLDS.mid) return PLANNING_RATES.standard
-  if (netProfit < PLANNING_THRESHOLDS.high) return PLANNING_RATES.mid
-  return PLANNING_RATES.high
+export interface HstBreakdown {
+  registered: boolean
+  rate: number
+  collected: number
+  inputTaxCredits: number
+  netHstOwing: number
+  trailingRevenue: number
+  smallSupplierThreshold: number
+  approachingThreshold: boolean
+  overThreshold: boolean
 }
 
-export function getPlanningTierLabel(netProfit: number): string {
-  if (netProfit < PLANNING_THRESHOLDS.mid) {
-    return 'Under $60k net profit — 25% reserve is usually safe'
+export function taxOnBrackets(
+  income: number,
+  brackets: readonly { upTo: number; rate: number }[],
+): number {
+  if (income <= 0) return 0
+  let tax = 0
+  let previous = 0
+  for (const bracket of brackets) {
+    if (income <= previous) break
+    const slice = Math.min(income, bracket.upTo) - previous
+    tax += slice * bracket.rate
+    previous = bracket.upTo
   }
-  if (netProfit < PLANNING_THRESHOLDS.high) {
-    return '$60k–$100k net profit — 29% reserve (increase toward 28–30%)'
-  }
-  return 'Over $100k net profit — 30% reserve; consider incorporation'
+  return roundCents(tax)
 }
 
-/** Schedule 8 CPP reference — not added to reserve (planning rate already covers it). */
-export function estimateCppReference(netSelfEmploymentIncome: number): number {
-  if (netSelfEmploymentIncome <= 0) return 0
-
-  const basicExemption = 3_500
-  const ympe = 74_600
-  const yampe = 85_000
-
-  const cpp1Base = Math.max(0, Math.min(netSelfEmploymentIncome, ympe) - basicExemption)
-  const cpp1 = Math.min(cpp1Base * 0.119, 8_460.9)
-
-  const cpp2Base = Math.max(0, Math.min(netSelfEmploymentIncome, yampe) - ympe)
-  const cpp2 = Math.min(cpp2Base * 0.08, 832)
-
-  return cpp1 + cpp2
-}
-
-function referenceMarginalCombined(netProfit: number): number {
-  if (netProfit <= 0) return 0.1905 // 14% + 5.05% at lowest brackets
-  const federal =
-    netProfit <= 58_523 ? 0.14 : netProfit <= 117_045 ? 0.205 : 0.26
-  const ontario =
-    netProfit <= 53_891 ? 0.0505 : netProfit <= 107_785 ? 0.0915 : 0.1116
-  return federal + ontario
+export function federalBasicPersonalAmount(netIncome: number): number {
+  if (netIncome <= FEDERAL_BPA.phaseOutStart) return FEDERAL_BPA.max
+  if (netIncome >= FEDERAL_BPA.phaseOutEnd) return FEDERAL_BPA.min
+  const span = FEDERAL_BPA.phaseOutEnd - FEDERAL_BPA.phaseOutStart
+  const reduced =
+    FEDERAL_BPA.max -
+    ((FEDERAL_BPA.max - FEDERAL_BPA.min) * (netIncome - FEDERAL_BPA.phaseOutStart)) / span
+  return roundCents(reduced)
 }
 
 /**
- * Tax reserve for planning: net profit × tiered rate.
- * Example: $2,563 profit × 25% = $640.75
+ * Self-employed CPP (Schedule 8).
+ * Employment pensionable earnings (T4) reduce remaining YMPE/YAMPE room
+ * and use up the $3,500 basic exemption first.
  */
-export function calculateOntarioSolePropTax(netProfit: number): TaxBreakdown {
-  const safeNet = Math.max(0, netProfit)
-  const planningRate = getPlanningTaxRate(safeNet)
-  const totalTaxReserve = safeNet * planningRate
+export function calculateCpp(
+  netSelfEmploymentIncome: number,
+  employmentPensionable = 0,
+): CppBreakdown {
+  const se = Math.max(0, netSelfEmploymentIncome)
+  const t4 = Math.min(Math.max(0, employmentPensionable), CPP_2026.yampe)
+
+  if (se <= 0) {
+    return { cpp1: 0, cpp2: 0, total: 0, deductible: 0, creditBase: 0 }
+  }
+
+  const exemptionRemaining = Math.max(0, CPP_2026.basicExemption - Math.min(t4, CPP_2026.basicExemption))
+  const cpp1Room = Math.max(0, CPP_2026.ympe - t4)
+  const cpp1Base = Math.min(Math.max(se - exemptionRemaining, 0), cpp1Room)
+  const cpp1 = roundCents(Math.min(cpp1Base * CPP_2026.selfEmployedRate, CPP_2026.selfEmployedMax))
+
+  const pensionableThroughCpp1 = t4 + Math.min(se, cpp1Room)
+  const cpp2Room = Math.max(0, CPP_2026.yampe - Math.max(pensionableThroughCpp1, CPP_2026.ympe))
+  const seAboveYmpe = Math.max(0, se - cpp1Room)
+  const cpp2Base = Math.min(seAboveYmpe, cpp2Room)
+  const cpp2 = roundCents(Math.min(cpp2Base * CPP_2026.cpp2Rate, CPP_2026.cpp2Max))
+
+  const employeeBaseForCredit = roundCents(cpp1Base * CPP_2026.employeeBaseRate)
+  const total = roundCents(cpp1 + cpp2)
+  const deductible = roundCents(Math.max(0, total - employeeBaseForCredit))
 
   return {
-    netProfit: safeNet,
-    planningRate,
-    planningTierLabel: getPlanningTierLabel(safeNet),
-    totalTaxReserve,
-    effectiveRate: planningRate,
-    cppReference: estimateCppReference(safeNet),
-    marginalCombinedReference: referenceMarginalCombined(safeNet),
+    cpp1,
+    cpp2,
+    total,
+    deductible,
+    creditBase: employeeBaseForCredit,
   }
+}
+
+/** @deprecated use calculateCpp */
+export function estimateCppReference(netSelfEmploymentIncome: number): number {
+  return calculateCpp(netSelfEmploymentIncome).total
+}
+
+export function ontarioHealthPremium(taxableIncome: number): number {
+  const ti = Math.max(0, taxableIncome)
+  if (ti <= 20_000) return 0
+  if (ti <= 36_000) return roundCents(Math.min(300, 0.06 * (ti - 20_000)))
+  if (ti <= 48_000) return roundCents(Math.min(450, 300 + 0.06 * (ti - 36_000)))
+  if (ti <= 72_000) return roundCents(Math.min(600, 450 + 0.25 * (ti - 48_000)))
+  if (ti <= 200_000) return roundCents(Math.min(750, 600 + 0.25 * (ti - 72_000)))
+  return roundCents(Math.min(900, 750 + 0.25 * (ti - 200_000)))
+}
+
+function ontarioTaxReduction(ontarioTaxAfterCredits: number): number {
+  if (ontarioTaxAfterCredits <= 0) return 0
+  if (ontarioTaxAfterCredits >= ONTARIO_TAX_REDUCTION_BASIC) return 0
+  const reduction = 2 * (ONTARIO_TAX_REDUCTION_BASIC - ontarioTaxAfterCredits)
+  return roundCents(Math.min(ontarioTaxAfterCredits, Math.max(0, reduction)))
+}
+
+function ontarioSurtax(ontarioTaxAfterReduction: number): number {
+  const first = Math.max(0, ontarioTaxAfterReduction - ONTARIO_SURTAX.firstThreshold) * ONTARIO_SURTAX.firstRate
+  const second =
+    Math.max(0, ontarioTaxAfterReduction - ONTARIO_SURTAX.secondThreshold) * ONTARIO_SURTAX.secondRate
+  return roundCents(first + second)
+}
+
+export function combinedMarginalRate(taxableIncome: number): number {
+  if (taxableIncome <= 0) return FEDERAL_BRACKETS_2026[0].rate + ONTARIO_BRACKETS_2026[0].rate
+
+  const federal = FEDERAL_BRACKETS_2026.find((b) => taxableIncome <= b.upTo)?.rate ?? 0.33
+  const ontario = ONTARIO_BRACKETS_2026.find((b) => taxableIncome <= b.upTo)?.rate ?? 0.1316
+
+  const grossOntario = taxOnBrackets(taxableIncome, ONTARIO_BRACKETS_2026)
+  const ontarioAfterCredits = Math.max(
+    0,
+    roundCents(grossOntario - ONTARIO_BPA.amount * ONTARIO_BPA.creditRate),
+  )
+  let ontarioEffective = ontario
+  if (ontarioAfterCredits > ONTARIO_SURTAX.secondThreshold) {
+    ontarioEffective = ontario * (1 + ONTARIO_SURTAX.firstRate + ONTARIO_SURTAX.secondRate)
+  } else if (ontarioAfterCredits > ONTARIO_SURTAX.firstThreshold) {
+    ontarioEffective = ontario * (1 + ONTARIO_SURTAX.firstRate)
+  }
+
+  return Math.round((federal + ontarioEffective) * 10000) / 10000
+}
+
+function describeReserve(netProfit: number, effectiveRate: number, totalTax: number): string {
+  if (netProfit <= 0 || totalTax <= 0) {
+    return 'No tax to set aside yet — expenses meet or exceed income.'
+  }
+  const pct = (effectiveRate * 100).toFixed(1)
+  return `Set aside ${pct}% of net profit for federal + Ontario income tax, the Ontario Health Premium, and CPP.`
+}
+
+export function calculateOntarioSolePropTax(
+  netProfit: number,
+  otherIncome = 0,
+): TaxBreakdown {
+  const businessProfit = roundCents(netProfit)
+  const employment = roundCents(Math.max(0, otherIncome))
+  const cpp = calculateCpp(Math.max(0, businessProfit), employment)
+
+  const taxableIncome = roundCents(Math.max(0, businessProfit + employment - cpp.deductible))
+  const netIncomeForBpa = taxableIncome
+
+  const federalGross = taxOnBrackets(taxableIncome, FEDERAL_BRACKETS_2026)
+  const federalBpaCredit = roundCents(federalBasicPersonalAmount(netIncomeForBpa) * FEDERAL_BPA.creditRate)
+  const federalCppCredit = roundCents(cpp.creditBase * FEDERAL_BPA.creditRate)
+  const federalTax = roundCents(Math.max(0, federalGross - federalBpaCredit - federalCppCredit))
+
+  const ontarioGross = taxOnBrackets(taxableIncome, ONTARIO_BRACKETS_2026)
+  const ontarioBpaCredit = roundCents(ONTARIO_BPA.amount * ONTARIO_BPA.creditRate)
+  const ontarioCppCredit = roundCents(cpp.creditBase * ONTARIO_BPA.creditRate)
+  const ontarioAfterCredits = roundCents(Math.max(0, ontarioGross - ontarioBpaCredit - ontarioCppCredit))
+  const reduction = ontarioTaxReduction(ontarioAfterCredits)
+  const ontarioBeforeSurtax = roundCents(Math.max(0, ontarioAfterCredits - reduction))
+  const surtax = ontarioSurtax(ontarioBeforeSurtax)
+  const ontarioTax = roundCents(ontarioBeforeSurtax + surtax)
+  const healthPremium = ontarioHealthPremium(taxableIncome)
+
+  const incomeTax = roundCents(federalTax + ontarioTax + healthPremium)
+  const totalTaxReserve = roundCents(incomeTax + cpp.total)
+  const effectiveRate = businessProfit > 0 ? totalTaxReserve / businessProfit : 0
+  const marginal = combinedMarginalRate(taxableIncome)
+
+  return {
+    netProfit: businessProfit,
+    otherIncome: employment,
+    taxableIncome,
+    cpp,
+    federalTax,
+    ontarioTaxBeforeSurtax: ontarioBeforeSurtax,
+    ontarioSurtax: surtax,
+    ontarioTax,
+    ontarioHealthPremium: healthPremium,
+    incomeTax,
+    totalTaxReserve,
+    effectiveRate,
+    marginalCombinedRate: marginal,
+    planningRate: effectiveRate,
+    planningTierLabel: describeReserve(businessProfit, effectiveRate, totalTaxReserve),
+    cppReference: cpp.total,
+    marginalCombinedReference: marginal,
+  }
+}
+
+export function splitHst(
+  amount: number,
+  includesHst: boolean,
+  rate = ONTARIO_HST_RATE,
+): { net: number; hst: number } {
+  const safe = Math.max(0, amount)
+  if (!includesHst) {
+    return { net: roundCents(safe), hst: roundCents(safe * rate) }
+  }
+  const net = roundCents(safe / (1 + rate))
+  return { net, hst: roundCents(safe - net) }
+}
+
+export function calculateHst(options: {
+  registered: boolean
+  amountsIncludeHst: boolean
+  incomeAmounts: number[]
+  deductibleExpenseAmounts: number[]
+  trailingRevenue: number
+}): HstBreakdown {
+  const { registered, amountsIncludeHst, incomeAmounts, deductibleExpenseAmounts, trailingRevenue } =
+    options
+
+  if (!registered) {
+    return {
+      registered: false,
+      rate: ONTARIO_HST_RATE,
+      collected: 0,
+      inputTaxCredits: 0,
+      netHstOwing: 0,
+      trailingRevenue: roundCents(trailingRevenue),
+      smallSupplierThreshold: HST_SMALL_SUPPLIER_THRESHOLD,
+      approachingThreshold: trailingRevenue >= HST_SMALL_SUPPLIER_THRESHOLD * 0.8,
+      overThreshold: trailingRevenue > HST_SMALL_SUPPLIER_THRESHOLD,
+    }
+  }
+
+  const collected = roundCents(
+    incomeAmounts.reduce((sum, amount) => sum + splitHst(amount, amountsIncludeHst).hst, 0),
+  )
+  const inputTaxCredits = roundCents(
+    deductibleExpenseAmounts.reduce(
+      (sum, amount) => sum + splitHst(amount, amountsIncludeHst).hst,
+      0,
+    ),
+  )
+
+  return {
+    registered: true,
+    rate: ONTARIO_HST_RATE,
+    collected,
+    inputTaxCredits,
+    netHstOwing: roundCents(collected - inputTaxCredits),
+    trailingRevenue: roundCents(trailingRevenue),
+    smallSupplierThreshold: HST_SMALL_SUPPLIER_THRESHOLD,
+    approachingThreshold: trailingRevenue >= HST_SMALL_SUPPLIER_THRESHOLD * 0.8,
+    overThreshold: trailingRevenue > HST_SMALL_SUPPLIER_THRESHOLD,
+  }
+}
+
+export function businessAmountForIncomeTax(
+  amount: number,
+  hstRegistered: boolean,
+  amountsIncludeHst: boolean,
+): number {
+  if (hstRegistered && amountsIncludeHst) {
+    return splitHst(amount, true).net
+  }
+  return roundCents(Math.max(0, amount))
 }
 
 export function getSolePropTaxExplanation(): string {
   return (
-    'Sole proprietorship profit is taxed as personal income (Revenue − Expenses = Profit). ' +
-    'For planning: set aside net profit × 25% under $60k, × 29% for $60k–$100k, × 30% over $100k. ' +
-    'That reserve covers federal + Ontario income tax and CPP (you pay both employee and employer portions). ' +
-    '2026 reference: federal 14% on first $58,523, Ontario 5.05% on first $53,891 — combined roughly 19%–25% on net profit before CPP. ' +
-    'HST (13%) is separate if you register at $30k revenue. Not tax advice.'
+    'Sole-proprietorship profit is taxed as your personal income in Ontario (Revenue − deductible expenses = profit). ' +
+    'This app estimates 2026 federal tax, Ontario tax (including surtax), the Ontario Health Premium, and self-employed CPP ' +
+    '(you pay both the employee and employer portions). Half of base CPP is a tax credit; the rest is deducted from income. ' +
+    'HST (13%) is separate: you only collect/remit it if you are registered, usually once taxable sales pass $30,000. ' +
+    'The estimate uses only the basic personal amount — RRSP, dependents, or other credits would lower tax. Not tax advice.'
   )
 }
 
@@ -127,5 +390,9 @@ export function getOntarioTaxEngineExplanation(): string {
 }
 
 export function formatPlanningRate(rate: number): string {
-  return `${(rate * 100).toFixed(0)}%`
+  return `${(rate * 100).toFixed(1)}%`
+}
+
+export function formatPercent(rate: number, digits = 1): string {
+  return `${(rate * 100).toFixed(digits)}%`
 }

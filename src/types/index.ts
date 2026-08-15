@@ -1,4 +1,4 @@
-import type { TaxBreakdown } from '../lib/taxEngine'
+import type { HstBreakdown, TaxBreakdown } from '../lib/taxEngine'
 
 export type TransactionType = 'income' | 'expense'
 export type IncomeSource = 'subcontractor' | 'junk_removal'
@@ -46,7 +46,9 @@ export interface Settings {
   id: string
   businessName: string
   businessStartDate: string
+  /** Unused — tax is calculated from 2026 Ontario/federal rules, not a flat rate. */
   incomeTaxRate: number
+  /** Unused — CPP is calculated from CRA 2026 amounts. */
   selfEmploymentRate: number
   fiscalYearStart: number
   currency: string
@@ -54,6 +56,12 @@ export interface Settings {
   dismissedReminderKey: string | null
   lastSyncedAt: string | null
   updatedAt: string
+  /** Collect and remit Ontario HST (13%). */
+  hstRegistered: boolean
+  /** Recorded amounts already include 13% HST (only used when registered). */
+  amountsIncludeHst: boolean
+  /** Other T4 / employment income this year — stacks on business profit for tax brackets. */
+  otherAnnualIncome: number
 }
 
 export interface FinancialSummary {
@@ -62,12 +70,20 @@ export interface FinancialSummary {
   junkRemovalIncome: number
   totalExpenses: number
   deductibleExpenses: number
+  /** Business profit for the period (can be negative). */
   netProfit: number
+  /** Tax to set aside for this period (incremental when viewing a month). */
   taxReserve: number
   takeHome: number
   expenseByCategory: Record<string, number>
   taxBreakdown: TaxBreakdown
   effectiveTaxRate: number
+  hst: HstBreakdown
+  /** HST to remit for this period (incremental when viewing a month). */
+  hstSetAside: number
+  /** Year-to-date through the end of the selected period. */
+  ytdNetProfit: number
+  ytdTaxReserve: number
 }
 
 export interface QuarterlyTaxReminder {

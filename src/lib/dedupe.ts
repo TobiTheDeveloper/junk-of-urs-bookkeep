@@ -43,23 +43,13 @@ export function buildImportKey(input: FingerprintInput, explicitKey?: string | n
   return `fp:${buildTransactionFingerprint(input)}`
 }
 
-function incomeAmountKey(date: string, amount: number): string {
-  return `${normalizeTransactionDate(date)}:${normalizeTransactionAmount(amount).toFixed(2)}`
-}
-
 export function canonicalTransactionGroupKey(
   input: FingerprintInput & { importKey?: string | null },
 ): string {
-  const date = normalizeTransactionDate(input.date)
-  const amount = normalizeTransactionAmount(input.amount).toFixed(2)
   const importKey = input.importKey ?? null
 
   if (importKey && !importKey.startsWith('fp:')) {
     return importKey
-  }
-
-  if (input.type === 'income') {
-    return `income:${date}:${amount}`
   }
 
   return buildTransactionFingerprint(input)
@@ -76,17 +66,7 @@ export async function findExistingTransaction(
 
   const fingerprint = buildTransactionFingerprint(input)
   const all = await db.transactions.toArray()
-  const byFingerprint = all.find((t) => buildTransactionFingerprint(t) === fingerprint)
-  if (byFingerprint) return byFingerprint
-
-  if (input.type === 'income') {
-    const key = incomeAmountKey(input.date, input.amount)
-    return all.find(
-      (t) => t.type === 'income' && incomeAmountKey(t.date, t.amount) === key,
-    )
-  }
-
-  return undefined
+  return all.find((t) => buildTransactionFingerprint(t) === fingerprint)
 }
 
 export async function backfillImportKeys(): Promise<void> {
@@ -140,24 +120,6 @@ export async function removeDuplicateTransactions(): Promise<number> {
     const keep = tx.importKey && !existing.importKey ? tx : existing
     const drop = keep.id === tx.id ? existing : tx
     keepByFingerprint.set(fp, keep)
-    dropIds.add(drop.id)
-    removed++
-  }
-
-  const keepByIncomeAmount = new Map<string, Transaction>()
-  for (const tx of sorted) {
-    if (dropIds.has(tx.id) || tx.type !== 'income') continue
-
-    const key = incomeAmountKey(tx.date, tx.amount)
-    const existing = keepByIncomeAmount.get(key)
-    if (!existing) {
-      keepByIncomeAmount.set(key, tx)
-      continue
-    }
-
-    const keep = tx.importKey && !existing.importKey ? tx : existing
-    const drop = keep.id === tx.id ? existing : tx
-    keepByIncomeAmount.set(key, keep)
     dropIds.add(drop.id)
     removed++
   }

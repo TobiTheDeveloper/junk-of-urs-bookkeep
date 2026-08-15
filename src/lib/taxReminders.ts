@@ -1,6 +1,7 @@
 import type { Category, QuarterlyTaxReminder, Settings, Transaction } from '../types'
 import { calculateSummary } from './calculations'
 import { getSolePropTaxExplanation } from './taxEngine'
+
 const CRA_INSTALMENT_DATES: { quarter: 1 | 2 | 3 | 4; month: number; day: number }[] = [
   { quarter: 1, month: 3, day: 15 },
   { quarter: 2, month: 6, day: 15 },
@@ -22,21 +23,6 @@ function daysBetween(from: Date, to: Date): number {
   return Math.ceil(ms / (1000 * 60 * 60 * 24))
 }
 
-function ytdNetProfitThroughQuarter(
-  transactions: Transaction[],
-  categories: Category[],
-  settings: Settings,
-  taxYear: number,
-  quarter: 1 | 2 | 3 | 4,
-): number {
-  const endMonth = quarter * 3
-  let total = 0
-  for (let month = 1; month <= endMonth; month++) {
-    total += calculateSummary(transactions, categories, settings, taxYear, month).netProfit
-  }
-  return total
-}
-
 export function getQuarterlyReminders(
   transactions: Transaction[],
   categories: Category[],
@@ -50,13 +36,8 @@ export function getQuarterlyReminders(
   return ([1, 2, 3, 4] as const).map((quarter) => {
     const dueDate = quarterDueDate(taxYear, quarter)
     const daysUntilDue = daysBetween(now, dueDate)
-    const ytdNetProfit = ytdNetProfitThroughQuarter(
-      transactions,
-      categories,
-      settings,
-      taxYear,
-      quarter,
-    )
+    const throughMonth = quarter * 3
+    const ytdSummary = calculateSummary(transactions, categories, settings, taxYear, throughMonth)
     const estimatedPayment = Math.max(0, annualTax / 4)
 
     return {
@@ -67,7 +48,7 @@ export function getQuarterlyReminders(
       dueDate,
       daysUntilDue,
       estimatedPayment,
-      ytdNetProfit,
+      ytdNetProfit: ytdSummary.ytdNetProfit,
       isDueSoon: daysUntilDue >= 0 && daysUntilDue <= 21,
       isPastDue: daysUntilDue < 0 && daysUntilDue >= -30,
     }
@@ -117,10 +98,9 @@ export async function requestNotificationPermission(): Promise<boolean> {
   return result === 'granted'
 }
 
-/** Default planning reserve — net profit × 25% under $60k */
 export const ONTARIO_SOLE_PROP_TAX = {
-  planningRate: 25,
   hstRate: 13,
+  smallSupplierThreshold: 30_000,
 } as const
 
 export function getOntarioTaxExplanation(): string {

@@ -60,12 +60,20 @@ function buildSummaryRows(
     ['Junk Removal Income', formatCurrency(summary.junkRemovalIncome, currency)],
     ['Total Expenses', formatCurrency(summary.totalExpenses, currency)],
     ['Deductible Expenses', formatCurrency(summary.deductibleExpenses, currency)],
-    ['Net Profit (Taxable)', formatCurrency(summary.netProfit, currency)],
-    ['Planning Rate', `${summary.effectiveTaxRate.toFixed(0)}%`],
-    ['Tax Reserve (Net Profit × Rate)', formatCurrency(summary.taxReserve, currency)],
-    ['CPP Reference (included in rate)', formatCurrency(summary.taxBreakdown.cppReference, currency)],
-    ['Planning Tier', summary.taxBreakdown.planningTierLabel],
+    ['Net Profit', formatCurrency(summary.netProfit, currency)],
+    ['Taxable Income (after CPP deduction)', formatCurrency(summary.taxBreakdown.taxableIncome, currency)],
+    ['Federal Income Tax', formatCurrency(summary.taxBreakdown.federalTax, currency)],
+    ['Ontario Income Tax', formatCurrency(summary.taxBreakdown.ontarioTax, currency)],
+    ['Ontario Surtax', formatCurrency(summary.taxBreakdown.ontarioSurtax, currency)],
+    ['Ontario Health Premium', formatCurrency(summary.taxBreakdown.ontarioHealthPremium, currency)],
+    ['CPP (self-employed both halves)', formatCurrency(summary.taxBreakdown.cpp.total, currency)],
+    ['Effective Rate on Profit', `${summary.effectiveTaxRate.toFixed(1)}%`],
+    ['Income Tax + CPP to Set Aside', formatCurrency(summary.taxReserve, currency)],
+    ['HST Collected', formatCurrency(summary.hst.collected, currency)],
+    ['HST ITCs', formatCurrency(summary.hst.inputTaxCredits, currency)],
+    ['HST to Remit', formatCurrency(summary.hst.netHstOwing, currency)],
     ['Estimated Take-Home', formatCurrency(summary.takeHome, currency)],
+    ['Tax notes', summary.taxBreakdown.planningTierLabel],
   ]
 }
 
@@ -152,8 +160,8 @@ function buildReadmeText(
     `  Net profit:      ${formatCurrency(summary.netProfit, currency)}`,
     `  Tax reserve:     ${formatCurrency(summary.taxReserve, currency)}`,
     '',
-    'Ontario sole proprietorship — profit is personal income.',
-    'Share all three CSV files with your accountant for tax filing.',
+    'Ontario sole proprietorship — 2026 federal + Ontario income tax, Health Premium, and CPP estimate.',
+    'HST is listed separately and is not income tax. Share all three CSV files with your accountant.',
   ].join('\n')
 }
 
