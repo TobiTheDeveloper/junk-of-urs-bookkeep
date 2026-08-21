@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict'
-import { calculateSummary } from '../src/lib/calculations.ts'
+import { calculateSummary, deductibleAmount, expenseTaxLine } from '../src/lib/calculations.ts'
 import { roundCents } from '../src/lib/money.ts'
 import {
   calculateCpp,
   calculateHst,
   calculateOntarioSolePropTax,
+  CANADA_EMPLOYMENT_AMOUNT,
   combinedMarginalRate,
   CPP_2026,
   federalBasicPersonalAmount,
   ontarioHealthPremium,
+  ontarioTaxReduction,
   ONTARIO_BPA,
   ONTARIO_SURTAX,
   splitHst,
@@ -45,6 +47,47 @@ function tx(
   }
 }
 
+function cat(id: string, name: string): Category {
+  return {
+    id,
+    name,
+    icon: 'tag',
+    color: '#64748b',
+    isDefault: true,
+    updatedAt: new Date().toISOString(),
+  }
+}
+
+const meals = cat('meals', 'Meals (50% deductible)')
+const fuel = cat('fuel', 'Fuel & Gas')
+const mileage = cat('mileage', 'Mileage')
+const dump = cat('dump', 'Dump & Disposal Fees')
+const marketing = cat('marketing', 'Marketing')
+const insurance = cat('insurance', 'Insurance')
+const phone = cat('phone', 'Phone & Internet')
+
+function baseSettings(overrides: Partial<Settings> = {}): Settings {
+  return {
+    id: 'main',
+    businessName: 'Junk Of Urs',
+    businessStartDate: '2026-06-01',
+    incomeTaxRate: 0,
+    selfEmploymentRate: 0,
+    fiscalYearStart: 1,
+    currency: 'CAD',
+    quarterlyRemindersEnabled: true,
+    dismissedReminderKey: null,
+    lastSyncedAt: null,
+    updatedAt: new Date().toISOString(),
+    hstRegistered: false,
+    amountsIncludeHst: true,
+    otherAnnualIncome: 0,
+    vehicleBusinessUsePercent: 100,
+    phoneInternetBusinessUsePercent: 100,
+    ...overrides,
+  }
+}
+
 function run() {
   assert.equal(calculateOntarioSolePropTax(0).totalTaxReserve, 0)
   assert.equal(calculateCpp(0).total, 0)
@@ -77,6 +120,12 @@ function run() {
   assert.equal(federalBasicPersonalAmount(50_000), 16_452)
   assert.equal(federalBasicPersonalAmount(258_482), 14_829)
 
+  assert.equal(ontarioTaxReduction(0), 0)
+  assert.equal(ontarioTaxReduction(250), 250)
+  almost(ontarioTaxReduction(400), 200)
+  assert.equal(ontarioTaxReduction(600), 0)
+  assert.equal(ontarioTaxReduction(700), 0)
+
   const low = calculateOntarioSolePropTax(10_000)
   assert.equal(low.federalTax, 0)
   assert.equal(low.ontarioTax, 0)
@@ -102,6 +151,12 @@ function run() {
   const high = calculateOntarioSolePropTax(120_000)
   assert.ok(high.ontarioSurtax > 0)
   assert.ok(high.marginalCombinedRate > 0.33)
+
+  const t4Only = calculateOntarioSolePropTax(0, 20_000)
+  const ceaCredit = roundCents(CANADA_EMPLOYMENT_AMOUNT * 0.14)
+  assert.ok(ceaCredit > 200)
+  assert.ok(t4Only.federalTax > 0)
+  assert.ok(t4Only.cpp.total === 0)
 
   almost(combinedMarginalRate(40_000), 0.14 + 0.0505)
   almost(taxOnBrackets(53_891, ONTARIO_BRACKETS_2026), roundCents(53_891 * 0.0505))
@@ -135,46 +190,68 @@ function run() {
   const bpaCredit = roundCents(ONTARIO_BPA.amount * ONTARIO_BPA.creditRate)
   almost(bpaCredit, 655.94, 2)
 
-  const meals: Category = {
-    id: 'meals',
-    name: 'Meals (50% deductible)',
-    icon: 'utensils',
-    color: '#f43f5e',
-    isDefault: true,
-    updatedAt: new Date().toISOString(),
-  }
-  const settings: Settings = {
-    id: 'main',
-    businessName: 'Test',
-    businessStartDate: '2026-01-01',
-    incomeTaxRate: 0,
-    selfEmploymentRate: 0,
-    fiscalYearStart: 1,
-    currency: 'CAD',
-    quarterlyRemindersEnabled: true,
-    dismissedReminderKey: null,
-    lastSyncedAt: null,
-    updatedAt: new Date().toISOString(),
-    hstRegistered: false,
-    amountsIncludeHst: false,
-    otherAnnualIncome: 0,
-  }
+  const settings = baseSettings()
   const books: Transaction[] = [
-    tx({ type: 'income', amount: 8_000, date: '2026-01-15', incomeSource: 'subcontractor' }),
+    tx({ type: 'income', amount: 8_000, date: '2026-01-15', incomeSource: 'subcontractor', client: 'Stage' }),
     tx({ type: 'income', amount: 8_000, date: '2026-06-15', incomeSource: 'junk_removal' }),
     tx({ type: 'expense', amount: 100, date: '2026-06-20', categoryId: 'meals', isTaxDeductible: true }),
+    tx({ type: 'expense', amount: 760, date: '2026-06-19', categoryId: 'mileage', isTaxDeductible: true }),
+    tx({ type: 'expense', amount: 80, date: '2026-06-18', categoryId: 'dump', isTaxDeductible: true }),
+    tx({ type: 'expense', amount: 40, date: '2026-06-21', categoryId: 'marketing', isTaxDeductible: true }),
   ]
-  const june = calculateSummary(books, [meals], settings, 2026, 6)
-  const year = calculateSummary(books, [meals], settings, 2026)
+  const cats = [meals, fuel, mileage, dump, marketing, insurance, phone]
+  const june = calculateSummary(books, cats, settings, 2026, 6)
+  const year = calculateSummary(books, cats, settings, 2026)
 
-  almost(june.deductibleExpenses, 50)
+  almost(june.deductibleExpenses, 50 + 80 + 40)
   almost(june.grossIncome, 8_000)
   almost(year.grossIncome, 16_000)
-  almost(year.deductibleExpenses, 50)
-  almost(year.netProfit, 15_950)
+  almost(year.subcontractorIncome, 8_000)
+  almost(year.junkRemovalIncome, 8_000)
+  almost(year.deductibleExpenses, 170)
+  almost(year.netProfit, 15_830)
+  assert.equal(deductibleAmount(books[3], cats, settings), 0)
   assert.ok(june.taxReserve > 0)
   assert.ok(june.taxReserve < year.taxReserve)
   almost(year.taxReserve, year.taxBreakdown.totalTaxReserve)
+
+  const mealHst = expenseTaxLine(
+    tx({ type: 'expense', amount: 113, date: '2026-06-01', categoryId: 'meals' }),
+    meals,
+    baseSettings({ hstRegistered: true, amountsIncludeHst: true }),
+  )
+  almost(mealHst.inputTaxCredit, 6.5)
+  almost(mealHst.incomeTaxDeduction, 53.25)
+
+  const gasHalf = expenseTaxLine(
+    tx({ type: 'expense', amount: 100, date: '2026-06-01', categoryId: 'fuel' }),
+    fuel,
+    baseSettings({ vehicleBusinessUsePercent: 50 }),
+  )
+  almost(gasHalf.incomeTaxDeduction, 50)
+
+  const phoneHalf = expenseTaxLine(
+    tx({ type: 'expense', amount: 80, date: '2026-06-01', categoryId: 'phone' }),
+    phone,
+    baseSettings({ phoneInternetBusinessUsePercent: 50 }),
+  )
+  almost(phoneHalf.incomeTaxDeduction, 40)
+
+  const insured = expenseTaxLine(
+    tx({ type: 'expense', amount: 113, date: '2026-06-01', categoryId: 'insurance' }),
+    insurance,
+    baseSettings({ hstRegistered: true, amountsIncludeHst: true }),
+  )
+  almost(insured.incomeTaxDeduction, 113)
+  almost(insured.inputTaxCredit, 0)
+
+  const dumpFee = expenseTaxLine(
+    tx({ type: 'expense', amount: 226, date: '2026-06-01', categoryId: 'dump' }),
+    dump,
+    baseSettings({ hstRegistered: true, amountsIncludeHst: true }),
+  )
+  almost(dumpFee.inputTaxCredit, 26)
+  almost(dumpFee.incomeTaxDeduction, 200)
 
   console.log('Ontario 2026 tax engine checks passed')
 }

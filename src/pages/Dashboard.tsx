@@ -114,7 +114,7 @@ export function Dashboard() {
             label={
               <div className="flex items-center gap-2 text-sm text-slate-300">
                 <Briefcase size={16} className="shrink-0 text-indigo-400" />
-                <span>Subcontractor Work</span>
+                <span>Stage / subcontract</span>
               </div>
             }
             amount={formatCurrency(summary.subcontractorIncome, currency)}
@@ -123,7 +123,7 @@ export function Dashboard() {
             label={
               <div className="flex items-center gap-2 text-sm text-slate-300">
                 <Truck size={16} className="shrink-0 text-lime-400" />
-                <span>Junk Removal</span>
+                <span>Junk Of Urs jobs</span>
               </div>
             }
             amount={formatCurrency(summary.junkRemovalIncome, currency)}

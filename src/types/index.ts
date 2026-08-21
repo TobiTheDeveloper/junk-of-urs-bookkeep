@@ -60,8 +60,12 @@ export interface Settings {
   hstRegistered: boolean
   /** Recorded amounts already include 13% HST (only used when registered). */
   amountsIncludeHst: boolean
-  /** Other T4 / employment income this year — stacks on business profit for tax brackets. */
+  /** Other T4 wages this year — not Stage subcontract / T4A. Stacks on profit for brackets. */
   otherAnnualIncome: number
+  /** Business kilometres / total kilometres (T2125 Chart A). Applied to fuel and vehicle maintenance. */
+  vehicleBusinessUsePercent: number
+  /** Business share of phone and internet bills. */
+  phoneInternetBusinessUsePercent: number
 }
 
 export interface FinancialSummary {

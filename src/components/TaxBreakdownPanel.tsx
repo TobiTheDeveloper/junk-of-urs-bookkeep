@@ -51,14 +51,14 @@ export function TaxBreakdownPanel({
         label="Business profit"
         value={tax.netProfit}
         currency={currency}
-        hint="Income minus deductible expenses (meals at 50%)"
+        hint="Income minus deductible expenses (meals at 50%; mileage log excluded)"
       />
       {tax.otherIncome > 0 && (
         <Line
           label="Other income (T4)"
           value={tax.otherIncome}
           currency={currency}
-          hint="Entered in Settings — used so tax brackets are right"
+          hint="Entered in Settings — T4 wages only, not Stage pay"
         />
       )}
       <Line
@@ -118,7 +118,12 @@ export function TaxBreakdownPanel({
         <div className="rounded-xl bg-sky-950/40 border border-sky-900/40 px-3 py-2.5 space-y-2">
           <p className="text-xs font-semibold text-sky-200">HST (13%) — separate from income tax</p>
           <Line label="HST collected on sales" value={hst.collected} currency={currency} />
-          <Line label="HST paid on expenses (ITCs)" value={hst.inputTaxCredits} currency={currency} />
+          <Line
+            label="HST paid on expenses (ITCs)"
+            value={hst.inputTaxCredits}
+            currency={currency}
+            hint="Meals 50%. No ITC on insurance or mileage logs."
+          />
           <Line
             label="HST to remit"
             value={hst.netHstOwing}

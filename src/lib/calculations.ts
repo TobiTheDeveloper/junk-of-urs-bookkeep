@@ -1,12 +1,16 @@
 import type { Category, FinancialSummary, Settings, Transaction } from '../types'
+import { categoryTaxRule } from './categoryTax'
 import { roundCents } from './money'
 import {
   businessAmountForIncomeTax,
   calculateHst,
   calculateOntarioSolePropTax,
+  splitHst,
   type HstBreakdown,
   type TaxBreakdown,
 } from './taxEngine'
+
+export { isMealsCategory, isMileageLogCategory, deductionBadgeLabel } from './categoryTax'
 
 function parseDate(dateStr: string): Date {
   return new Date(dateStr + 'T12:00:00')
@@ -26,10 +30,69 @@ function isInYearThroughMonth(dateStr: string, year: number, throughMonth: numbe
   return d.getFullYear() === year && d.getMonth() + 1 <= throughMonth
 }
 
-export function isMealsCategory(category: Category | undefined): boolean {
-  if (!category) return false
-  const name = category.name.toLowerCase()
-  return name.includes('meal') && (name.includes('50') || name.includes('deduct'))
+function clampPercent(value: number | undefined): number {
+  if (!Number.isFinite(value)) return 1
+  return Math.min(1, Math.max(0, (value as number) / 100))
+}
+
+function businessUseRate(useBasis: 'full' | 'vehicle' | 'phone', settings: Settings): number {
+  if (useBasis === 'vehicle') return clampPercent(settings.vehicleBusinessUsePercent ?? 100)
+  if (useBasis === 'phone') return clampPercent(settings.phoneInternetBusinessUsePercent ?? 100)
+  return 1
+}
+
+export interface ExpenseTaxLine {
+  cashAmount: number
+  incomeTaxDeduction: number
+  inputTaxCredit: number
+  pretaxForDisplay: number
+}
+
+/**
+ * CRA income-tax deduction and HST ITC for one expense line.
+ * Meals: 50% deduction and 50% ITC; non-creditable HST stays in the deductible cost.
+ * Mileage: log only (not deducted) so gas is not double-counted.
+ */
+export function expenseTaxLine(
+  transaction: Transaction,
+  category: Category | undefined,
+  settings: Settings,
+): ExpenseTaxLine {
+  const cashAmount = roundCents(Math.max(0, transaction.amount))
+  const empty = { cashAmount, incomeTaxDeduction: 0, inputTaxCredit: 0, pretaxForDisplay: 0 }
+
+  if (transaction.type !== 'expense' || !transaction.isTaxDeductible) {
+    return empty
+  }
+
+  const rule = categoryTaxRule(category)
+  if (!rule.incomeTaxDeductible) return empty
+
+  const useRate = businessUseRate(rule.useBasis, settings)
+  const eligibleCash = roundCents(cashAmount * useRate)
+  const registered = settings.hstRegistered
+  const includesHst = registered && (settings.amountsIncludeHst ?? true)
+
+  if (!registered || !rule.chargesHst) {
+    const pretaxForDisplay = businessAmountForIncomeTax(eligibleCash, false, false)
+    return {
+      cashAmount,
+      pretaxForDisplay,
+      inputTaxCredit: 0,
+      incomeTaxDeduction: roundCents(eligibleCash * rule.deductFraction),
+    }
+  }
+
+  const split = splitHst(eligibleCash, includesHst)
+  const itc = roundCents(split.hst * rule.itcFraction)
+  const nonCreditableHst = roundCents(split.hst - itc)
+  const costAfterItc = roundCents(split.net + nonCreditableHst)
+  return {
+    cashAmount,
+    pretaxForDisplay: split.net,
+    inputTaxCredit: itc,
+    incomeTaxDeduction: roundCents(costAfterItc * rule.deductFraction),
+  }
 }
 
 export function deductibleAmount(
@@ -37,17 +100,8 @@ export function deductibleAmount(
   categories: Category[],
   settings: Settings,
 ): number {
-  if (transaction.type !== 'expense' || !transaction.isTaxDeductible) return 0
-  const pretax = businessAmountForIncomeTax(
-    transaction.amount,
-    settings.hstRegistered,
-    settings.amountsIncludeHst,
-  )
   const category = categories.find((c) => c.id === transaction.categoryId)
-  if (isMealsCategory(category)) {
-    return roundCents(pretax * 0.5)
-  }
-  return pretax
+  return expenseTaxLine(transaction, category, settings).incomeTaxDeduction
 }
 
 export function incomeAmountForTax(transaction: Transaction, settings: Settings): number {
@@ -94,7 +148,7 @@ function periodTotals(
   recordedIncome: number
   recordedExpenses: number
   incomeAmounts: number[]
-  deductibleExpenseAmounts: number[]
+  inputTaxCredits: number
 } {
   const income = transactions.filter((t) => t.type === 'income')
   const expenses = transactions.filter((t) => t.type === 'expense')
@@ -114,6 +168,11 @@ function periodTotals(
       .reduce((sum, t) => sum + incomeAmountForTax(t, settings), 0),
   )
 
+  const expenseLines = expenses.map((t) => {
+    const category = categories.find((c) => c.id === t.categoryId)
+    return expenseTaxLine(t, category, settings)
+  })
+
   const totalExpenses = roundCents(
     expenses.reduce(
       (sum, t) =>
@@ -123,7 +182,10 @@ function periodTotals(
     ),
   )
   const deductibleExpenses = roundCents(
-    expenses.reduce((sum, t) => sum + deductibleAmount(t, categories, settings), 0),
+    expenseLines.reduce((sum, line) => sum + line.incomeTaxDeduction, 0),
+  )
+  const inputTaxCredits = roundCents(
+    expenseLines.reduce((sum, line) => sum + line.inputTaxCredit, 0),
   )
   const netProfit = roundCents(grossIncome - deductibleExpenses)
 
@@ -137,9 +199,7 @@ function periodTotals(
     recordedIncome,
     recordedExpenses,
     incomeAmounts: income.map((t) => t.amount),
-    deductibleExpenseAmounts: expenses
-      .filter((t) => t.isTaxDeductible)
-      .map((t) => t.amount),
+    inputTaxCredits,
   }
 }
 
@@ -155,6 +215,22 @@ function emptyHst(): HstBreakdown {
 
 function emptyTax(): TaxBreakdown {
   return calculateOntarioSolePropTax(0, 0)
+}
+
+function hstForPeriod(
+  settings: Settings,
+  incomeAmounts: number[],
+  inputTaxCredits: number,
+  trailingRevenue: number,
+): HstBreakdown {
+  return calculateHst({
+    registered: settings.hstRegistered,
+    amountsIncludeHst: settings.amountsIncludeHst,
+    incomeAmounts,
+    deductibleExpenseAmounts: [],
+    trailingRevenue,
+    inputTaxCredits,
+  })
 }
 
 export function calculateSummary(
@@ -183,29 +259,24 @@ export function calculateSummary(
   const priorTax =
     month === undefined ? emptyTax() : calculateOntarioSolePropTax(priorYtd.netProfit, otherIncome)
 
-  const taxReserve =
+  const employmentOnlyTax = otherIncome > 0 ? calculateOntarioSolePropTax(0, otherIncome) : emptyTax()
+  const ytdBusinessReserve = roundCents(ytdTax.totalTaxReserve - employmentOnlyTax.incomeTax)
+  const priorBusinessReserve =
     month === undefined
-      ? ytdTax.totalTaxReserve
-      : roundCents(ytdTax.totalTaxReserve - priorTax.totalTaxReserve)
+      ? 0
+      : roundCents(
+          priorTax.totalTaxReserve - (otherIncome > 0 ? employmentOnlyTax.incomeTax : 0),
+        )
+
+  const taxReserve =
+    month === undefined ? ytdBusinessReserve : roundCents(ytdBusinessReserve - priorBusinessReserve)
 
   const trailingRevenue = trailingTwelveMonthRevenue(transactions, settings)
-  const ytdHst = calculateHst({
-    registered: settings.hstRegistered,
-    amountsIncludeHst: settings.amountsIncludeHst,
-    incomeAmounts: ytd.incomeAmounts,
-    deductibleExpenseAmounts: ytd.deductibleExpenseAmounts,
-    trailingRevenue,
-  })
+  const ytdHst = hstForPeriod(settings, ytd.incomeAmounts, ytd.inputTaxCredits, trailingRevenue)
   const priorHst =
     month === undefined
       ? emptyHst()
-      : calculateHst({
-          registered: settings.hstRegistered,
-          amountsIncludeHst: settings.amountsIncludeHst,
-          incomeAmounts: priorYtd.incomeAmounts,
-          deductibleExpenseAmounts: priorYtd.deductibleExpenseAmounts,
-          trailingRevenue,
-        })
+      : hstForPeriod(settings, priorYtd.incomeAmounts, priorYtd.inputTaxCredits, trailingRevenue)
   const hst = ytdHst
   const periodHstOwing =
     month === undefined
@@ -221,6 +292,8 @@ export function calculateSummary(
     expenseByCategory[key] = roundCents((expenseByCategory[key] ?? 0) + expense.amount)
   }
 
+  const effectiveBase = ytd.netProfit > 0 ? ytdBusinessReserve / ytd.netProfit : 0
+
   return {
     grossIncome: period.grossIncome,
     subcontractorIncome: period.subcontractorIncome,
@@ -231,12 +304,17 @@ export function calculateSummary(
     taxReserve,
     takeHome,
     expenseByCategory,
-    taxBreakdown: ytdTax,
-    effectiveTaxRate: ytdTax.effectiveRate * 100,
+    taxBreakdown: {
+      ...ytdTax,
+      totalTaxReserve: ytdBusinessReserve,
+      effectiveRate: effectiveBase,
+      planningRate: effectiveBase,
+    },
+    effectiveTaxRate: effectiveBase * 100,
     hst,
     hstSetAside: periodHstOwing,
     ytdNetProfit: ytd.netProfit,
-    ytdTaxReserve: ytdTax.totalTaxReserve,
+    ytdTaxReserve: ytdBusinessReserve,
   }
 }
 

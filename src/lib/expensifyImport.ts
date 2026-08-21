@@ -18,6 +18,10 @@ const MEAL_MERCHANTS =
 const TRAVEL_MERCHANTS = /lyft|uber(?! eats)/i
 const TOOL_MERCHANTS = /home depot|dollarama|walmart|amazon\.ca(?! prime)/i
 const SOFTWARE_MERCHANTS = /openai|open ai/i
+const DUMP_MERCHANTS =
+  /dump|landfill|transfer station|waste|disposal|tipping|recycle|recycling|gfl|waste management/i
+const MARKETING_MERCHANTS =
+  /facebook|meta ads|google ads|instagram|canva|squarespace|wix|godaddy|mailchimp|flyer|print/i
 
 function parseCsvLine(line: string): string[] {
   const result: string[] = []
@@ -125,6 +129,24 @@ export function classifyExpensifyExpense(row: ParsedExpensifyRow): ClassifiedExp
       isTaxDeductible: true,
       skip: false,
       notes: 'Business software subscription',
+    }
+  }
+
+  if (DUMP_MERCHANTS.test(merchant) || cat.includes('disposal') || cat.includes('dump')) {
+    return {
+      categoryName: 'Dump & Disposal Fees',
+      isTaxDeductible: true,
+      skip: false,
+      notes: `Expensify: ${expensifyCategory || 'Dump'}`,
+    }
+  }
+
+  if (MARKETING_MERCHANTS.test(merchant) || cat.includes('advertis') || cat.includes('marketing')) {
+    return {
+      categoryName: 'Marketing',
+      isTaxDeductible: true,
+      skip: false,
+      notes: `Expensify: ${expensifyCategory || 'Marketing'}`,
     }
   }
 

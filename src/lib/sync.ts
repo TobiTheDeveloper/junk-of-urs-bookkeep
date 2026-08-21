@@ -145,8 +145,10 @@ function toRemoteSettings(settings: Settings, userId: string) {
     updated_at: settings.updatedAt,
     business_start_date: settings.businessStartDate,
     hst_registered: settings.hstRegistered ?? false,
-    amounts_include_hst: settings.amountsIncludeHst ?? false,
+    amounts_include_hst: settings.amountsIncludeHst ?? true,
     other_annual_income: settings.otherAnnualIncome ?? 0,
+    vehicle_business_use_percent: settings.vehicleBusinessUsePercent ?? 100,
+    phone_internet_business_use_percent: settings.phoneInternetBusinessUsePercent ?? 100,
   }
 }
 
@@ -216,6 +218,12 @@ function fromRemoteSettings(row: Record<string, unknown>): Partial<Settings> {
   if ('hst_registered' in row) next.hstRegistered = Boolean(row.hst_registered)
   if ('amounts_include_hst' in row) next.amountsIncludeHst = Boolean(row.amounts_include_hst)
   if ('other_annual_income' in row) next.otherAnnualIncome = Number(row.other_annual_income) || 0
+  if ('vehicle_business_use_percent' in row) {
+    next.vehicleBusinessUsePercent = Number(row.vehicle_business_use_percent) || 100
+  }
+  if ('phone_internet_business_use_percent' in row) {
+    next.phoneInternetBusinessUsePercent = Number(row.phone_internet_business_use_percent) || 100
+  }
   return next
 }
 
@@ -480,12 +488,16 @@ export async function syncToCloud(): Promise<SyncResult> {
           hst_registered: _h,
           amounts_include_hst: _a,
           other_annual_income: _o,
+          vehicle_business_use_percent: _v,
+          phone_internet_business_use_percent: _p,
           ...legacy
         } = remote
         void _d
         void _h
         void _a
         void _o
+        void _v
+        void _p
         ;({ error } = await supabase.from('user_settings').upsert(legacy))
       }
       if (error) throw error

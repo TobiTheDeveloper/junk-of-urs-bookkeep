@@ -66,8 +66,10 @@ export function SettingsPage() {
   const [businessStartDate, setBusinessStartDate] = useState('2026-06-01')
   const [quarterlyRemindersEnabled, setQuarterlyRemindersEnabled] = useState(true)
   const [hstRegistered, setHstRegistered] = useState(false)
-  const [amountsIncludeHst, setAmountsIncludeHst] = useState(false)
+  const [amountsIncludeHst, setAmountsIncludeHst] = useState(true)
   const [otherAnnualIncome, setOtherAnnualIncome] = useState('0')
+  const [vehicleBusinessUsePercent, setVehicleBusinessUsePercent] = useState('100')
+  const [phoneInternetBusinessUsePercent, setPhoneInternetBusinessUsePercent] = useState('100')
   const [importMessage, setImportMessage] = useState('')
   const [exportYear, setExportYear] = useState(new Date().getFullYear())
   const [exportingPackage, setExportingPackage] = useState(false)
@@ -91,8 +93,10 @@ export function SettingsPage() {
       setBusinessStartDate(settings.businessStartDate ?? '2026-06-01')
       setQuarterlyRemindersEnabled(settings.quarterlyRemindersEnabled)
       setHstRegistered(settings.hstRegistered ?? false)
-      setAmountsIncludeHst(settings.amountsIncludeHst ?? false)
+      setAmountsIncludeHst(settings.amountsIncludeHst ?? true)
       setOtherAnnualIncome(String(settings.otherAnnualIncome ?? 0))
+      setVehicleBusinessUsePercent(String(settings.vehicleBusinessUsePercent ?? 100))
+      setPhoneInternetBusinessUsePercent(String(settings.phoneInternetBusinessUsePercent ?? 100))
     }
   }, [settings])
 
@@ -104,8 +108,13 @@ export function SettingsPage() {
       quarterlyRemindersEnabled,
       dismissedReminderKey: quarterlyRemindersEnabled ? settings?.dismissedReminderKey ?? null : null,
       hstRegistered,
-      amountsIncludeHst: hstRegistered ? amountsIncludeHst : false,
+      amountsIncludeHst,
       otherAnnualIncome: Math.max(0, parseFloat(otherAnnualIncome) || 0),
+      vehicleBusinessUsePercent: Math.min(100, Math.max(0, parseFloat(vehicleBusinessUsePercent) || 0)),
+      phoneInternetBusinessUsePercent: Math.min(
+        100,
+        Math.max(0, parseFloat(phoneInternetBusinessUsePercent) || 0),
+      ),
       currency: 'CAD',
     })
     setSaved(true)
@@ -260,7 +269,7 @@ export function SettingsPage() {
           </div>
 
           <div>
-            <FieldLabel>Other T4 / employment income this year</FieldLabel>
+            <FieldLabel>Other T4 wages this year (not Stage)</FieldLabel>
             <TextInput
               type="number"
               inputMode="decimal"
@@ -270,9 +279,44 @@ export function SettingsPage() {
               onChange={(e) => setOtherAnnualIncome(e.target.value)}
             />
             <p className="text-[11px] text-slate-500 mt-1.5">
-              Leave $0 if this business is your only income. If you also have a job, enter wages so
-              tax brackets and CPP room are right.
+              Leave $0 unless you also have a job that issues a T4 with tax and CPP already taken
+              off. Stage subcontract pay is business income — log it under Income, do not enter it
+              here.
             </p>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <FieldLabel>Vehicle business-use %</FieldLabel>
+              <TextInput
+                type="number"
+                inputMode="decimal"
+                step="1"
+                min="0"
+                max="100"
+                value={vehicleBusinessUsePercent}
+                onChange={(e) => setVehicleBusinessUsePercent(e.target.value)}
+              />
+              <p className="text-[11px] text-slate-500 mt-1.5">
+                Business km ÷ total km from your log. Applied to fuel and vehicle maintenance — not
+                to a second mileage dollar amount.
+              </p>
+            </div>
+            <div>
+              <FieldLabel>Phone & internet business-use %</FieldLabel>
+              <TextInput
+                type="number"
+                inputMode="decimal"
+                step="1"
+                min="0"
+                max="100"
+                value={phoneInternetBusinessUsePercent}
+                onChange={(e) => setPhoneInternetBusinessUsePercent(e.target.value)}
+              />
+              <p className="text-[11px] text-slate-500 mt-1.5">
+                Only the business share of a mixed personal/work phone or internet bill.
+              </p>
+            </div>
           </div>
 
           <SettingsToggle
@@ -287,7 +331,7 @@ export function SettingsPage() {
               checked={amountsIncludeHst}
               onChange={setAmountsIncludeHst}
               label="Amounts I enter already include HST"
-              description="Turn off if you record prices before tax"
+              description="On for receipt and invoice totals (gas, dump fees, Stage invoices). Off only if you type pre-tax prices."
             />
           )}
 
@@ -305,7 +349,7 @@ export function SettingsPage() {
               <ChevronDown size={14} className="shrink-0 transition-transform group-open:rotate-180" />
             </summary>
             <p className="px-3.5 pb-3 text-[11px] text-amber-100/70 leading-relaxed">
-              {getOntarioTaxExplanation()} Meals are 50% deductible.
+              {getOntarioTaxExplanation()}
             </p>
           </details>
 
@@ -495,8 +539,9 @@ export function SettingsPage() {
               (Expensify counts).
             </li>
             <li>
-              <strong className="text-slate-300">Mileage log</strong> — destination, purpose, total
-              (your $760 entry).
+              <strong className="text-slate-300">Mileage log</strong> — date, destination, purpose,
+              business km and total km (proves vehicle %). Do not also enter that km as a dollar
+              deduction on top of gas.
             </li>
             <li>
               <strong className="text-slate-300">Invoices & emails</strong> — subcontractor invoices,

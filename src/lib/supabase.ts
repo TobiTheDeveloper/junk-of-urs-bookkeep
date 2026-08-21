@@ -77,6 +77,8 @@ export type Database = {
           hst_registered: boolean
           amounts_include_hst: boolean
           other_annual_income: number
+          vehicle_business_use_percent: number
+          phone_internet_business_use_percent: number
         }
       }
     }

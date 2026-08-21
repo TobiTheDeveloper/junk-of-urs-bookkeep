@@ -4,12 +4,13 @@
  * Assumes:
  *   - Ontario resident
  *   - Calendar year
- *   - This business (+ optional T4 entered in Settings) is the income being taxed
+ *   - Junk Of Urs profit (Stage subcontract + junk jobs) is self-employment income
+ *   - Optional T4 wages in Settings only — Stage pay is NOT T4
  *   - Only the basic personal amount (no spouse, dependents, RRSP, tuition, etc.)
  *
  * Figures confirmed to CRA / Ontario 2026:
- *   Federal brackets & 14% lowest rate, BPA $16,452
- *   Ontario brackets, BPA $12,989, surtax $5,818 / $7,446
+ *   Federal brackets & 14% lowest rate, BPA $16,452, CEA $1,501
+ *   Ontario brackets, BPA $12,989, surtax $5,818 / $7,446, OTR basic $300
  *   CPP YMPE $74,600, YAMPE $85,000, self-employed 11.9% + CPP2 8%
  *   Ontario HST 13%, small-supplier threshold $30,000
  *
@@ -56,8 +57,11 @@ export const ONTARIO_SURTAX = {
   secondRate: 0.36,
 } as const
 
-/** ON428 low-income tax reduction basic amount (2026, indexed). */
+/** ON428 line 74 basic reduction (2026, indexed). */
 export const ONTARIO_TAX_REDUCTION_BASIC = 300
+
+/** Federal Canada employment amount — T4 wages only, not self-employment. */
+export const CANADA_EMPLOYMENT_AMOUNT = 1_501
 
 export const CPP_2026 = {
   basicExemption: 3_500,
@@ -208,11 +212,14 @@ export function ontarioHealthPremium(taxableIncome: number): number {
   return roundCents(Math.min(900, 750 + 0.25 * (ti - 200_000)))
 }
 
-function ontarioTaxReduction(ontarioTaxAfterCredits: number): number {
-  if (ontarioTaxAfterCredits <= 0) return 0
-  if (ontarioTaxAfterCredits >= ONTARIO_TAX_REDUCTION_BASIC) return 0
-  const reduction = 2 * (ONTARIO_TAX_REDUCTION_BASIC - ontarioTaxAfterCredits)
-  return roundCents(Math.min(ontarioTaxAfterCredits, Math.max(0, reduction)))
+/**
+ * ON428 Ontario tax reduction: twice the basic amount minus Ontario tax,
+ * capped at tax payable, nil once tax exceeds twice the basic amount.
+ */
+export function ontarioTaxReduction(ontarioTaxBeforeReduction: number): number {
+  if (ontarioTaxBeforeReduction <= 0) return 0
+  const reduction = 2 * ONTARIO_TAX_REDUCTION_BASIC - ontarioTaxBeforeReduction
+  return roundCents(Math.min(ontarioTaxBeforeReduction, Math.max(0, reduction)))
 }
 
 function ontarioSurtax(ontarioTaxAfterReduction: number): number {
@@ -265,7 +272,11 @@ export function calculateOntarioSolePropTax(
   const federalGross = taxOnBrackets(taxableIncome, FEDERAL_BRACKETS_2026)
   const federalBpaCredit = roundCents(federalBasicPersonalAmount(netIncomeForBpa) * FEDERAL_BPA.creditRate)
   const federalCppCredit = roundCents(cpp.creditBase * FEDERAL_BPA.creditRate)
-  const federalTax = roundCents(Math.max(0, federalGross - federalBpaCredit - federalCppCredit))
+  const cea = roundCents(Math.min(CANADA_EMPLOYMENT_AMOUNT, employment))
+  const federalCeaCredit = employment > 0 ? roundCents(cea * FEDERAL_BPA.creditRate) : 0
+  const federalTax = roundCents(
+    Math.max(0, federalGross - federalBpaCredit - federalCppCredit - federalCeaCredit),
+  )
 
   const ontarioGross = taxOnBrackets(taxableIncome, ONTARIO_BRACKETS_2026)
   const ontarioBpaCredit = roundCents(ONTARIO_BPA.amount * ONTARIO_BPA.creditRate)
@@ -322,9 +333,17 @@ export function calculateHst(options: {
   incomeAmounts: number[]
   deductibleExpenseAmounts: number[]
   trailingRevenue: number
+  /** When set, used instead of assuming 13% HST on every expense. */
+  inputTaxCredits?: number
 }): HstBreakdown {
-  const { registered, amountsIncludeHst, incomeAmounts, deductibleExpenseAmounts, trailingRevenue } =
-    options
+  const {
+    registered,
+    amountsIncludeHst,
+    incomeAmounts,
+    deductibleExpenseAmounts,
+    trailingRevenue,
+    inputTaxCredits: inputTaxCreditsOverride,
+  } = options
 
   if (!registered) {
     return {
@@ -344,10 +363,11 @@ export function calculateHst(options: {
     incomeAmounts.reduce((sum, amount) => sum + splitHst(amount, amountsIncludeHst).hst, 0),
   )
   const inputTaxCredits = roundCents(
-    deductibleExpenseAmounts.reduce(
-      (sum, amount) => sum + splitHst(amount, amountsIncludeHst).hst,
-      0,
-    ),
+    inputTaxCreditsOverride ??
+      deductibleExpenseAmounts.reduce(
+        (sum, amount) => sum + splitHst(amount, amountsIncludeHst).hst,
+        0,
+      ),
   )
 
   return {
@@ -376,11 +396,13 @@ export function businessAmountForIncomeTax(
 
 export function getSolePropTaxExplanation(): string {
   return (
-    'Sole-proprietorship profit is taxed as your personal income in Ontario (Revenue − deductible expenses = profit). ' +
-    'This app estimates 2026 federal tax, Ontario tax (including surtax), the Ontario Health Premium, and self-employed CPP ' +
-    '(you pay both the employee and employer portions). Half of base CPP is a tax credit; the rest is deducted from income. ' +
-    'HST (13%) is separate: you only collect/remit it if you are registered, usually once taxable sales pass $30,000. ' +
-    'The estimate uses only the basic personal amount — RRSP, dependents, or other credits would lower tax. Not tax advice.'
+    'Junk Of Urs is one sole proprietorship: Stage subcontract pay and junk-removal jobs are both self-employment income ' +
+    '(T2125 / T4A — not a T4 job). Profit = income − CRA-allowed expenses. Gas, dump fees, and marketing are deductible; ' +
+    'meals are 50%; vehicle costs are actual expenses × your business-use % (mileage is the log, not a second deduction). ' +
+    'This app estimates 2026 federal tax, Ontario tax (including surtax and the Ontario tax reduction), the Ontario Health Premium, ' +
+    'and self-employed CPP (both halves). Half of base CPP is a tax credit; the rest is deducted from income. ' +
+    'HST (13%) is separate: collect/remit only if registered, usually once taxable sales pass $30,000. Meals ITCs are 50%; insurance has no HST. ' +
+    'Only the basic personal amount is applied — RRSP, dependents, or other credits would lower tax. Not tax advice.'
   )
 }
 

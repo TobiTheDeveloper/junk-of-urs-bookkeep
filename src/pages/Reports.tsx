@@ -224,7 +224,7 @@ export function ReportsPage() {
         <h2 className="text-sm font-semibold text-slate-300 mb-3">Income Breakdown</h2>
         <div className="space-y-3">
           <IncomeBar
-            label="Subcontractor Work"
+            label="Stage / subcontract"
             amount={summary.subcontractorIncome}
             total={summary.grossIncome}
             currency={currency}
@@ -232,7 +232,7 @@ export function ReportsPage() {
             color="#818cf8"
           />
           <IncomeBar
-            label="Junk Removal"
+            label="Junk Of Urs jobs"
             amount={summary.junkRemovalIncome}
             total={summary.grossIncome}
             currency={currency}

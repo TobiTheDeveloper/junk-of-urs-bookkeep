@@ -22,7 +22,7 @@ import {
   useSettings,
   useTransactions,
 } from '../hooks/useData'
-import { isMealsCategory } from '../lib/calculations'
+import { deductionBadgeLabel, isMealsCategory, isMileageLogCategory } from '../lib/calculations'
 import { displayCurrency, formatCurrency, formatDate, todayISO } from '../lib/format'
 import { roundCents } from '../lib/money'
 import type { Transaction } from '../types'
@@ -171,7 +171,7 @@ export function ExpensesPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Expenses</h1>
           <p className="text-sm text-slate-400 mt-0.5">
-            Business costs. Tap a row to edit. Meals are 50% deductible.
+            Business costs. Gas, dump fees, and marketing are deductible. Meals are 50%.
           </p>
         </div>
         <button
@@ -187,7 +187,7 @@ export function ExpensesPage() {
       {expenseList.length === 0 ? (
         <EmptyState
           title="No expenses recorded yet"
-          description="Log fuel, dump fees, tools, and other business costs. You can edit them later."
+          description="Log fuel, dump fees, marketing, tools, and other business costs."
         />
       ) : (
         <div className="space-y-2">
@@ -228,7 +228,11 @@ export function ExpensesPage() {
                       <p className="text-xs text-slate-500">{formatDate(tx.date)}</p>
                       {tx.isTaxDeductible && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 font-medium">
-                          {isMealsCategory(cat) ? '50% deductible' : 'Deductible'}
+                          {deductionBadgeLabel(
+                            cat,
+                            settings?.vehicleBusinessUsePercent ?? 100,
+                            settings?.phoneInternetBusinessUsePercent ?? 100,
+                          ) ?? 'Deductible'}
                         </span>
                       )}
                     </div>
@@ -293,7 +297,14 @@ export function ExpensesPage() {
             <CategoryPicker categories={categories} value={categoryId} onChange={setCategoryId} />
             {isMealsCategory(selectedCategory) && (
               <p className="text-[11px] text-slate-500 mt-1.5">
-                CRA allows 50% of meals and entertainment. Only half of this amount reduces tax.
+                CRA allows 50% of meals and entertainment. If you are HST-registered, only 50% of
+                the HST is an input tax credit.
+              </p>
+            )}
+            {isMileageLogCategory(selectedCategory) && (
+              <p className="text-[11px] text-slate-500 mt-1.5">
+                Mileage is your logbook (business km vs total km). It is not deducted as dollars —
+                fuel and vehicle maintenance are, times your vehicle business-use % in Settings.
               </p>
             )}
           </div>

@@ -32,8 +32,10 @@ export const DEFAULT_SETTINGS: Settings = {
   lastSyncedAt: null,
   updatedAt: new Date().toISOString(),
   hstRegistered: false,
-  amountsIncludeHst: false,
+  amountsIncludeHst: true,
   otherAnnualIncome: 0,
+  vehicleBusinessUsePercent: 100,
+  phoneInternetBusinessUsePercent: 100,
 }
 
 class BookkeepDB extends Dexie {
@@ -136,6 +138,22 @@ class BookkeepDB extends Dexie {
         })
       }
     })
+    this.version(5).stores({
+      transactions:
+        'id, type, date, categoryId, incomeSource, receiptId, importKey, createdAt, updatedAt',
+      categories: 'id, name, isDefault, updatedAt',
+      receipts: 'id, transactionId, createdAt, updatedAt',
+      settings: 'id, updatedAt',
+    }).upgrade(async (tx) => {
+      const settings = await tx.table('settings').get('main')
+      if (settings) {
+        await tx.table('settings').update('main', {
+          amountsIncludeHst: settings.amountsIncludeHst ?? true,
+          vehicleBusinessUsePercent: settings.vehicleBusinessUsePercent ?? 100,
+          phoneInternetBusinessUsePercent: settings.phoneInternetBusinessUsePercent ?? 100,
+        })
+      }
+    })
   }
 }
 
@@ -182,8 +200,10 @@ export async function seedDatabase() {
       businessStartDate: settings.businessStartDate || '2026-06-01',
       currency: settings.currency === 'USD' || !settings.currency ? 'CAD' : settings.currency,
       hstRegistered: settings.hstRegistered ?? false,
-      amountsIncludeHst: settings.amountsIncludeHst ?? false,
+      amountsIncludeHst: settings.amountsIncludeHst ?? true,
       otherAnnualIncome: settings.otherAnnualIncome ?? 0,
+      vehicleBusinessUsePercent: settings.vehicleBusinessUsePercent ?? 100,
+      phoneInternetBusinessUsePercent: settings.phoneInternetBusinessUsePercent ?? 100,
     })
   }
 }

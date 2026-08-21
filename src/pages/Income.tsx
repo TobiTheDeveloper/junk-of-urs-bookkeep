@@ -131,8 +131,8 @@ export function IncomePage() {
   }
 
   const sourceLabel = (source: IncomeSource | null) => {
-    if (source === 'subcontractor') return 'Subcontractor'
-    if (source === 'junk_removal') return 'Junk removal'
+    if (source === 'subcontractor') return 'Stage / subcontract'
+    if (source === 'junk_removal') return 'Junk Of Urs'
     return 'Other'
   }
 
@@ -142,7 +142,7 @@ export function IncomePage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Income</h1>
           <p className="text-sm text-slate-400 mt-0.5">
-            Money you were paid. Tap a payment to edit it.
+            Stage subcontract and Junk Of Urs jobs. Both are business income.
           </p>
         </div>
         <button
@@ -167,7 +167,7 @@ export function IncomePage() {
       {incomeList.length === 0 ? (
         <EmptyState
           title="No income recorded yet"
-          description="Log subcontractor payments and junk removal jobs. You can edit them later."
+          description="Log Stage pay and junk-removal jobs. Both count as Junk Of Urs self-employment income."
         />
       ) : (
         <div className="space-y-2">
@@ -247,7 +247,7 @@ export function IncomePage() {
                     : 'border-slate-700 text-slate-400'
                 }`}
               >
-                <Briefcase size={16} /> Subcontractor
+                <Briefcase size={16} /> Stage / subcontract
               </button>
               <button
                 type="button"
@@ -258,9 +258,13 @@ export function IncomePage() {
                     : 'border-slate-700 text-slate-400'
                 }`}
               >
-                <Truck size={16} /> Junk removal
+                <Truck size={16} /> Junk Of Urs
               </button>
             </div>
+            <p className="text-[11px] text-slate-500 mt-1.5">
+              Stage demolition/removal subcontracting is T4A business income for this sole prop —
+              not a T4 job. Both sources are taxed together.
+            </p>
           </div>
 
           <div>
@@ -278,7 +282,7 @@ export function IncomePage() {
             {settings?.hstRegistered && (
               <p className="text-[11px] text-slate-500 mt-1.5">
                 {settings.amountsIncludeHst
-                  ? 'Includes 13% HST — tax is calculated on the amount before HST.'
+                  ? 'Includes 13% HST — income tax is calculated on the amount before HST.'
                   : 'Enter the amount before HST. HST collected is tracked separately.'}
               </p>
             )}
@@ -297,7 +301,7 @@ export function IncomePage() {
           <div>
             <FieldLabel>Description</FieldLabel>
             <TextInput
-              placeholder="e.g. Invoice #012 — weekly subcontract"
+              placeholder="e.g. Invoice #012 — Stage weekly subcontract"
               value={form.description}
               onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
             />
@@ -306,7 +310,9 @@ export function IncomePage() {
           <div>
             <FieldLabel>Client / company</FieldLabel>
             <TextInput
-              placeholder="Who paid you?"
+              placeholder={
+                form.incomeSource === 'subcontractor' ? 'Stage' : 'Customer name'
+              }
               value={form.client}
               onChange={(e) => setForm((f) => ({ ...f, client: e.target.value }))}
             />
